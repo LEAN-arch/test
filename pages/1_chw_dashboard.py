@@ -67,10 +67,10 @@ if health_df_chw_main.empty: st.error("🚨 Critical Error: Could not load CHW d
 st.title("🧑‍⚕️ Community Health Worker (CHW) Dashboard")
 st.markdown("**Daily Patient Prioritization, Field Insights, & Wellness Monitoring**"); st.markdown("---")
 
-    if os.path.exists(app_config.APP_LOGO):
+if os.path.exists(app_config.APP_LOGO):
         st.sidebar.image(app_config.APP_LOGO, width=100) # << ADJUSTED WIDTH
         st.sidebar.markdown("---")
-    else:
+else:
         logger.warning(f"Sidebar logo not found on CHW Dashboard at {app_config.APP_LOGO}")
     
     st.sidebar.header("🗓️ CHW Filters")
