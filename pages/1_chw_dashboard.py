@@ -73,7 +73,7 @@ if os.path.exists(app_config.APP_LOGO):
 else:
         logger.warning(f"Sidebar logo not found on CHW Dashboard at {app_config.APP_LOGO}")
     
-    st.sidebar.header("🗓️ CHW Filters")
+st.sidebar.header("🗓️ CHW Filters")
 
 min_date_overall = date.today() - timedelta(days=365); max_date_overall = date.today()
 if not health_df_chw_main.empty and 'encounter_date' in health_df_chw_main and health_df_chw_main['encounter_date'].notna().any():
