@@ -1,0 +1,21 @@
+patient_id,date,condition,test_type,test_result,test_turnaround_days,test_date,item,quantity_dispensed,stock_on_hand,consumption_rate_per_day,zone_id,ai_risk_score,avg_daily_steps,avg_spo2,min_spo2_pct,max_skin_temp_celsius,fall_detected_today,clinic_id,physician_id,notes,hpv_status,hiv_viral_load,chw_visit,referral_status,referral_date,tb_contact_traced,gender,age,resting_heart_rate,avg_hrv,avg_sleep_duration_hrs,sleep_score_pct,stress_level_score
+P101,2025-03-05,TB,Sputum-AFB,Positive,2,2025-03-03,TB-Regimen A,1,120,2.1,ZoneA,78,4200,96,94,37.8,0,C01,DOC001,New TB case,Negative,,1,Pending,,0,Male,52,70,45,6.2,68,6
+P102,2025-03-10,Malaria,RDT-Malaria,Positive,0,2025-03-10,ACT Tablets,1,60,1.5,ZoneB,65,5800,98,97,37.1,0,C02,DOC002,Fever and chills,Negative,,1,Completed,2025-03-08,1,Female,28,68,50,7.5,82,3
+P103,2025-03-15,Wellness Visit,HIV-Rapid,Negative,1,2025-03-14,Multivitamins,1,200,0.5,ZoneA,25,9500,99,98,36.5,0,C01,DOC001,Annual checkup,Negative,,0,N/A,,0,Male,45,60,58,8.1,88,2
+P104,2025-03-20,Pneumonia,Chest X-Ray,Positive,1,2025-03-19,Amoxicillin Syrup,1,150,4.5,ZoneC,72,3900,94,92,38.6,0,C03,DOC003,Cough_and_difficulty_breathing,Negative,,1,Pending,2025-03-20,0,Female,68,78,38,5.5,60,7
+P105,2025-03-25,Hypertension,BP Check,High,0,2025-03-25,Amlodipine,1,90,1.0,ZoneD,60,6700,97,96,37.0,0,C04,DOC004,Routine BP check,Negative,,0,Follow-up,2025-03-24,0,Female,59,75,40,6.9,75,5
+P106,2025-04-02,Diabetes,Glucose Test,High,1,2025-04-01,Metformin,1,100,2.5,ZoneE,68,5300,96,95,37.2,0,C05,DOC005,Follow-up diabetes,Negative,,0,Initiated,2025-04-02,0,Male,61,72,43,6.4,70,6
+P107,2025-04-08,Anemia,Hemoglobin Test,Low,0,2025-04-08,Iron-Folate Tabs,1,180,2.8,ZoneF,58,7100,97,95,36.8,0,C06,DOC006,Pale and fatigued,Negative,,1,Completed,2025-04-07,0,Female,33,65,52,7.1,78,4
+P108,2025-04-12,STI-Gonorrhea,NAAT-GC,Positive,3,2025-04-09,Ceftriaxone Inj,1,25,0.3,ZoneA,75,4800,95,93,37.7,0,C01,DOC001,Partner referral,Negative,,1,Pending,2025-04-12,0,Male,27,70,46,5.9,65,7
+P109,2025-04-18,HIV-Positive,HIV-ViralLoad,"1500",6,2025-04-12,ARV-Regimen C,1,80,0.8,ZoneB,85,3500,94,92,38.1,1,C02,DOC002,New ART initiation,Positive,1500,1,Initiated,2025-04-15,0,Female,39,80,35,5.2,58,8
+P110,2025-04-25,Wellness Visit,PapSmear,Normal,4,2025-04-21,Calcium Supplement,1,50,0.2,ZoneC,20,8800,99,98,36.6,0,C03,DOC003,Routine screening,Normal,,0,N/A,,0,Female,50,62,55,7.8,85,2
+P111,2025-05-01,TB,Sputum-GeneXpert,Positive,1,2025-04-30,TB-Regimen B,1,70,1.9,ZoneD,82,3800,95,93,37.9,0,C04,DOC004,Persistent cough,Negative,,1,Pending,2025-05-01,0,Male,48,73,41,6.0,67,6
+P112,2025-05-05,Malaria,Microscopy-Malaria,Negative,1,2025-05-04,Prophylaxis,0,30,0.0,ZoneE,35,6900,98,97,37.0,0,C05,DOC005,Travel history,Negative,,0,Completed,2025-05-04,0,Female,31,67,53,7.3,80,3
+P113,2025-05-10,Hypertension,Follow-up,Stable,0,2025-05-10,Lisinopril,0,100,1.2,ZoneF,55,7600,97,96,36.9,0,C06,DOC006,BP check,Negative,,0,Follow-up,2025-05-09,0,Male,66,68,49,6.8,76,4
+P114,2025-05-15,Pneumonia,Chest X-Ray,Improving,1,2025-05-14,Co-amoxiclav,0,40,3.0,ZoneA,45,5200,97,96,37.3,0,C01,DOC001,Follow-up X-ray,Negative,,0,Completed,2025-05-13,0,Female,72,70,44,6.1,69,5
+P115,2025-05-20,STI-Chlamydia,Test of Cure,Negative,3,2025-05-17,,0,0,0,ZoneB,30,8500,99,98,36.7,0,C02,DOC002,Cured,Negative,,0,Completed,2025-05-18,0,Male,24,63,57,8.0,88,2
+P116,2025-05-25,Diabetes,Eye Exam,No Retinopathy,5,2025-05-20,,0,0,0,ZoneC,40,6100,98,97,37.1,0,C03,DOC003,Annual eye check,Negative,,0,N/A,,0,Female,55,66,51,7.2,79,4
+P117,2025-05-28,Dengue,IgM Test,Positive,2,2025-05-26,ORS Sachets,1,50,1.0,ZoneD,70,4300,96,94,38.2,0,C04,DOC004,High fever_joint pain,Negative,,1,Pending,2025-05-28,0,Male,19,77,39,5.7,62,7
+P118,2025-05-29,Anemia,Follow-up,Normal,0,2025-05-29,Iron-Folate Tabs,0,120,3.0,ZoneE,28,9000,99,98,36.6,0,C05,DOC005,Hemoglobin normalized,Negative,,0,Completed,2025-05-28,0,Female,37,61,59,8.3,90,1
+P119,2025-05-30,TB,Sputum-AFB,Pending,0,2025-05-30,,0,0,0,ZoneA,80,3000,95,93,38.0,0,C01,DOC001,Contact of P111,Negative,,1,Pending,2025-05-30,0,Male,33,74,42,5.4,59,8
+P120,2025-05-30,HIV-Positive,Viral Load,"<50>",7,2025-05-23,ARV-Regimen D,1,90,0.7,ZoneF,30,7800,98,97,37.0,0,C06,DOC006,Undetectable,Positive,<50>,1,Completed,2025-05-27,0,Female,41,64,54,7.6,83,3
