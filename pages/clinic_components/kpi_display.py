@@ -2,14 +2,15 @@
 import streamlit as st
 from config import app_config
 from utils.ui_visualization_helpers import render_kpi_card
+import numpy as np # For np.nan if default value is NaN
 
 def render_main_clinic_kpis(clinic_service_kpis, date_range_display_str):
     st.subheader(f"Overall Clinic Performance Summary {date_range_display_str}")
     kpi_cols_main_clinic = st.columns(4)
     with kpi_cols_main_clinic[0]:
-        overall_tat_val = clinic_service_kpis.get('overall_avg_test_turnaround', 0.0)
-        render_kpi_card("Overall Avg. TAT", f"{overall_tat_val:.1f}d", "⏱️",
-                        status="High" if overall_tat_val > (app_config.TARGET_TEST_TURNAROUND_DAYS + 1) else ("Moderate" if overall_tat_val > app_config.TARGET_TEST_TURNAROUND_DAYS else "Low"),
+        overall_tat_val = clinic_service_kpis.get('overall_avg_test_turnaround', np.nan) # Default to NaN for averages
+        render_kpi_card("Overall Avg. TAT", f"{overall_tat_val:.1f}d" if pd.notna(overall_tat_val) else "N/A", "⏱️",
+                        status="High" if pd.notna(overall_tat_val) and overall_tat_val > (app_config.TARGET_TEST_TURNAROUND_DAYS + 1) else ("Moderate" if pd.notna(overall_tat_val) and overall_tat_val > app_config.TARGET_TEST_TURNAROUND_DAYS else ("Low" if pd.notna(overall_tat_val) else "Neutral")),
                         help_text=f"Average TAT for all conclusive tests. Target: ≤{app_config.TARGET_TEST_TURNAROUND_DAYS} days.")
     with kpi_cols_main_clinic[1]:
         perc_met_tat_val = clinic_service_kpis.get('overall_perc_met_tat', 0.0)
@@ -30,6 +31,10 @@ def render_main_clinic_kpis(clinic_service_kpis, date_range_display_str):
 def render_disease_specific_kpis(clinic_service_kpis):
     st.markdown("##### Disease-Specific Test Positivity Rates (Selected Period)")
     test_details_for_kpis = clinic_service_kpis.get("test_summary_details", {})
+    if not test_details_for_kpis:
+        st.caption("Detailed test statistics are not available.")
+        return
+        
     kpi_cols_disease_pos = st.columns(4)
 
     tb_gx_key = next((k for k, v in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if "genexpert" in v.get("display_name", "").lower()), "Sputum-GeneXpert")
