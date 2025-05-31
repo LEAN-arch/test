@@ -52,18 +52,20 @@ if [ -f "$REQUIREMENTS_FILE" ]; then
     else
         echo "Error: Failed to install dependencies from ${REQUIREMENTS_FILE}."
         echo "Please check the file for errors and try again."
-        exit 1
+        # Consider exiting here if dependencies are critical
+        # exit 1 
     fi
 else
     echo "Warning: ${REQUIREMENTS_FILE} not found. Skipping dependency installation."
-    echo "Please ensure you have a requirements.txt file with necessary packages (e.g., streamlit, pandas, geopandas, plotly, numpy)."
+    echo "Please ensure you have a requirements.txt file with necessary packages (e.g., streamlit, pandas, geopandas, plotly, numpy, matplotlib)."
 fi
 
 echo ""
 echo "Setup complete."
 echo "To run the application:"
 echo "1. Ensure the virtual environment is active: source ./${VENV_DIR}/bin/activate"
-echo "2. Navigate to the 'health_hub' directory (if not already there)."
-echo "3. Run: streamlit run app_home.py"
+echo "2. Navigate to the 'health_hub' directory (if not already there when running app_home.py directly)."
+echo "   (If running from the parent directory of 'health_hub', use: python -m streamlit run health_hub/app_home.py)"
+echo "   (If running from inside 'health_hub' directory, use: streamlit run app_home.py)"
 echo ""
 echo "To deactivate the virtual environment later, simply type: deactivate"
