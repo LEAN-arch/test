@@ -54,8 +54,13 @@ else:
     st.markdown("---") 
 
     # --- Sidebar Filters ---
-    st.sidebar.image("assets//DNA-DxBrand.png", width=200)
-    st.sidebar.header("🗓️ CHW Filters") 
+    if os.path.exists(app_config.APP_LOGO):
+        st.sidebar.image(app_config.APP_LOGO, use_column_width='auto') # Or specific width like width=200
+        st.sidebar.markdown("---") # Optional separator
+    else:
+        logger.warning(f"Sidebar logo not found on CHW Dashboard at {app_config.APP_LOGO}")
+
+    st.sidebar.header("🗓️ CHW Filters")  
     
     min_date_available_chw = None
     max_date_available_chw = None
