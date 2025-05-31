@@ -8,9 +8,15 @@ from datetime import date, timedelta
 import numpy as np
 
 # --- Explicitly add project root to sys.path for robust imports ---
-PROJECT_ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+# This ensures that 'config', 'utils', and 'pages' itself are discoverable
+# as top-level packages from anywhere within the project run by Streamlit.
+PROJECT_ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)) # This gives 'test/'
 if PROJECT_ROOT_PATH not in sys.path:
     sys.path.insert(0, PROJECT_ROOT_PATH)
+    # For debugging:
+    # print(f"DEBUG [2_clinic_dashboard.py]: Added to sys.path: {PROJECT_ROOT_PATH}", file=sys.stderr)
+    # print(f"DEBUG [2_clinic_dashboard.py]: Current sys.path: {sys.path}", file=sys.stderr)
+
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -19,27 +25,32 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Project-specific absolute imports (now should work reliably):
+# Project-specific absolute imports:
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
     load_iot_clinic_environment_data,
     get_clinic_summary,
-    get_clinic_environmental_summary # <<< CORRECTED: Space removed
+    get_clinic_environmental_summary # Corrected: Space removed
 )
 from utils.ai_analytics_engine import (
     apply_ai_models
 )
+# ui_visualization_helpers often imported within components
 
-# Project-specific relative imports for components
-# Requires appropriate __init__.py files in 'pages' and 'pages/clinic_components'
-from .clinic_components import kpi_display
-from .clinic_components import environmental_kpis
-from .clinic_components import epi_module
-from .clinic_components import testing_insights_tab
-from .clinic_components import supply_chain_tab
-from .clinic_components import patient_focus_tab
-from .clinic_components import environment_details_tab
+# --- ABSOLUTE IMPORTS FOR COMPONENTS from the 'pages' package ---
+# This requires:
+# 1. 'test/__init__.py' (to make 'test' a potential namespace if run from parent, or recognized by path)
+# 2. 'test/pages/__init__.py' (to make 'pages' a package)
+# 3. 'test/pages/clinic_components/__init__.py' (to make 'clinic_components' a sub-package)
+from pages.clinic_components import kpi_display         # Line 36 target
+from pages.clinic_components import environmental_kpis
+from pages.clinic_components import epi_module
+from pages.clinic_components import testing_insights_tab
+from pages.clinic_components import supply_chain_tab
+from pages.clinic_components import patient_focus_tab
+from pages.clinic_components import environment_details_tab
+
 
 logger = logging.getLogger(__name__)
 
