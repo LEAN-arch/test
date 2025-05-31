@@ -60,7 +60,7 @@ def get_chw_dashboard_data_enriched():
     elif health_df_ai_enriched.empty:
         logger.error("CHW Dashboard: Both raw load and AI enrichment resulted in empty DF.")
         return pd.DataFrame()
-        
+
     logger.info(f"CHW Dashboard: Successfully loaded and AI-enriched {len(health_df_ai_enriched)} health records.")
     return health_df_ai_enriched
 
@@ -88,7 +88,7 @@ else:
     # Date selection robust handling
     min_date_available = health_df_chw_main['encounter_date'].min().date() if 'encounter_date' in health_df_chw_main and not health_df_chw_main['encounter_date'].dropna().empty else date.today() - pd.Timedelta(days=90)
     max_date_available = health_df_chw_main['encounter_date'].max().date() if 'encounter_date' in health_df_chw_main and not health_df_chw_main['encounter_date'].dropna().empty else date.today()
-    
+
     # Ensure min_date is not after max_date
     if min_date_available > max_date_available:
         min_date_available = max_date_available
@@ -101,18 +101,25 @@ else:
         value=default_view_date,
         min_value=min_date_available,
         max_value=max_date_available,
-        key="chw_daily_view_date_selector_v5",
+        key="chw_daily_view_date_selector_v5", # Key updated in previous response
         help="Select the date for which you want to view daily summaries, tasks, and patient alerts."
     )
 
     # Filter data for the selected date
-    # Ensure 'encounter_date_obj' is created correctly for filtering
-    health_df_chw_main['encounter_date_obj'] = pd.to_datetime(health_df_chw_main['encounter_date']).dt.date
-    current_day_chw_df = health_df_chw_main[health_df_chw_main['encounter_date_obj'] == selected_view_date_chw].copy()
+    # Create 'encounter_date_obj' safely from 'encounter_date'
+    temp_dates_chw = pd.to_datetime(health_df_chw_main['encounter_date'], errors='coerce')
+    health_df_chw_main['encounter_date_obj'] = pd.NaT # Initialize
+    valid_date_mask_chw = temp_dates_chw.notna()
+    health_df_chw_main.loc[valid_date_mask_chw, 'encounter_date_obj'] = temp_dates_chw[valid_date_mask_chw].dt.date
     
+    # Filter, ensuring 'encounter_date_obj' is not NaT for comparison
+    current_day_chw_df = health_df_chw_main[
+        health_df_chw_main['encounter_date_obj'].notna() &
+        (health_df_chw_main['encounter_date_obj'] == selected_view_date_chw)
+    ].copy()
+
     if current_day_chw_df.empty:
         st.info(f"ℹ️ No CHW-related encounter data recorded for {selected_view_date_chw.strftime('%A, %B %d, %Y')}.")
-        # Allow page to load with empty sections, but log it
         logger.info(f"CHW Dashboard: No data found for selected date {selected_view_date_chw}.")
     else:
         logger.debug(f"CHW Dashboard: Data for selected date {selected_view_date_chw} has {len(current_day_chw_df)} CHW-related encounters.")
@@ -123,7 +130,7 @@ else:
     logger.debug(f"CHW Daily KPIs for {selected_view_date_chw}: {chw_daily_kpis}")
 
     st.subheader(f"Daily Snapshot: {selected_view_date_chw.strftime('%A, %B %d, %Y')}")
-    
+
     kpi_cols_chw_overview = st.columns(4)
     with kpi_cols_chw_overview[0]:
         visits_val = chw_daily_kpis.get('visits_today', 0)
@@ -131,10 +138,11 @@ else:
                         status="Good High" if visits_val >= 10 else ("Moderate" if visits_val >= 5 else "Low"),
                         help_text="Total unique patients with CHW encounters on the selected date.")
     with kpi_cols_chw_overview[1]:
-        # 'Key Disease Tasks' can be more dynamic based on AI followup score or critical referral needs
-        high_priority_tasks = current_day_chw_df[current_day_chw_df['ai_followup_priority_score'] >= 80]['patient_id'].nunique() if 'ai_followup_priority_score' in current_day_chw_df else 0
+        high_priority_tasks = 0
+        if 'ai_followup_priority_score' in current_day_chw_df: # Check if column exists
+             high_priority_tasks = current_day_chw_df[current_day_chw_df['ai_followup_priority_score'] >= 80]['patient_id'].nunique()
         tb_contacts = chw_daily_kpis.get('tb_contacts_to_trace_today',0)
-        key_tasks = high_priority_tasks + tb_contacts # Example, could add more task types
+        key_tasks = high_priority_tasks + tb_contacts
         render_kpi_card("High-Priority Tasks", str(key_tasks), "📋",
                         status="High" if key_tasks > 5 else ("Moderate" if key_tasks > 0 else "Low"),
                         help_text="Sum of patients with AI high-priority follow-up scores and pending TB contact tracing tasks.")
@@ -153,7 +161,7 @@ else:
                         help_text="Number of unique patients visited today flagged with high general AI risk.")
 
     st.markdown("##### Patient Wellness Indicators (For Visited Patients Today)")
-    kpi_cols_chw_wellness = st.columns(4) # Added Falls Detected
+    kpi_cols_chw_wellness = st.columns(4)
     with kpi_cols_chw_wellness[0]:
         low_spo2 = chw_daily_kpis.get('patients_low_spo2_visited_today', 0)
         render_kpi_card("Low SpO2 Alerts", str(low_spo2), "💨",
@@ -179,11 +187,10 @@ else:
 
     tab_alerts, tab_tasks = st.tabs(["🚨 Critical Patient Alerts", "📋 Detailed Task List"])
 
-    # Generate patient alerts/tasks using the AI-enriched daily data
     patient_alerts_tasks_df = get_patient_alerts_for_chw(
-        current_day_chw_df, # This df now contains AI scores
+        current_day_chw_df,
         risk_threshold_moderate=app_config.RISK_THRESHOLDS['chw_alert_moderate'],
-        risk_threshold_high=app_config.RISK_THRESHOLDS['chw_alert_high'] # Used as fallback if no AI prio
+        risk_threshold_high=app_config.RISK_THRESHOLDS['chw_alert_high']
     )
     logger.debug(f"CHW Page: Patient alerts/tasks df for {selected_view_date_chw} has {len(patient_alerts_tasks_df)} rows. Columns: {patient_alerts_tasks_df.columns.tolist() if not patient_alerts_tasks_df.empty else 'N/A'}")
 
@@ -191,23 +198,32 @@ else:
     with tab_alerts:
         st.subheader("Critical Patient Alerts for Today")
         if not patient_alerts_tasks_df.empty:
-            # Sort by ai_followup_priority_score (if exists) or priority_score
             sort_col_alert = 'ai_followup_priority_score' if 'ai_followup_priority_score' in patient_alerts_tasks_df.columns else 'priority_score'
             alerts_to_display = patient_alerts_tasks_df.sort_values(by=sort_col_alert, ascending=False)
 
+            # Determine temp column name (this should be consistent from how get_chw_summary determined it or from get_patient_alerts)
+            temp_col_traffic = 'vital_signs_temperature_celsius' # Default or find actual in alert_row
+            if not current_day_chw_df.empty and 'vital_signs_temperature_celsius' in current_day_chw_df.columns and current_day_chw_df['vital_signs_temperature_celsius'].notna().any():
+                 pass # temp_col_traffic is fine
+            elif not current_day_chw_df.empty and 'max_skin_temp_celsius' in current_day_chw_df.columns :
+                 temp_col_traffic = 'max_skin_temp_celsius'
+
             for _, alert_row in alerts_to_display.head(15).iterrows():
-                # Determine traffic light status based on AI Followup Prio or general Risk
                 priority_val = alert_row.get(sort_col_alert, 0)
                 alert_status_for_light = "High" if priority_val >= 80 else \
-                                         "Moderate" if priority_val >= 60 else "Low" # Example thresholds for prio score
+                                         "Moderate" if priority_val >= 60 else "Low"
 
                 alert_details_parts = []
                 if pd.notna(alert_row.get('ai_risk_score')): alert_details_parts.append(f"AI Risk: {alert_row['ai_risk_score']:.0f}")
                 if pd.notna(alert_row.get('ai_followup_priority_score')): alert_details_parts.append(f"AI Prio: {alert_row['ai_followup_priority_score']:.0f}")
                 if pd.notna(alert_row.get('min_spo2_pct')): alert_details_parts.append(f"SpO2: {alert_row['min_spo2_pct']:.0f}%")
-                
-                temp_col_traffic = 'vital_signs_temperature_celsius' if 'vital_signs_temperature_celsius' in alert_row and pd.notna(alert_row['vital_signs_temperature_celsius']) else 'max_skin_temp_celsius'
-                if pd.notna(alert_row.get(temp_col_traffic)): alert_details_parts.append(f"Temp: {alert_row[temp_col_traffic]:.1f}°C")
+
+                # Use the determined temp_col_traffic for consistency
+                actual_temp_col_in_row = temp_col_traffic if temp_col_traffic in alert_row and pd.notna(alert_row[temp_col_traffic]) else \
+                                         ('max_skin_temp_celsius' if 'max_skin_temp_celsius' in alert_row and pd.notna(alert_row['max_skin_temp_celsius']) else None)
+
+                if actual_temp_col_in_row:
+                    alert_details_parts.append(f"Temp: {alert_row[actual_temp_col_in_row]:.1f}°C")
                 if pd.notna(alert_row.get('fall_detected_today')) and alert_row['fall_detected_today'] > 0:
                     alert_details_parts.append(f"Falls: {int(alert_row['fall_detected_today'])}")
 
@@ -215,33 +231,32 @@ else:
                 alert_detail_string = alert_row.get('alert_reason', 'Review Case') + (" | " + " / ".join(alert_details_parts) if alert_details_parts else "")
 
                 render_traffic_light(message=alert_message, status=alert_status_for_light, details=alert_detail_string)
-        elif not current_day_chw_df.empty: # If there were CHW encounters but no alerts
+        elif not current_day_chw_df.empty:
             st.success("✅ No critical patient alerts identified for today based on current CHW encounters and criteria.")
-        else: # No CHW encounters for the day
+        else:
             st.info("No CHW encounters recorded for today, so no alerts to display.")
 
     with tab_tasks:
         st.subheader("Prioritized Task List for Today")
         if not patient_alerts_tasks_df.empty:
-            # Show AI scores in the task list
+            temp_col_for_task_table = temp_col_traffic # Use the same determined temp col as in alerts tab for consistency
             task_list_cols_to_show = ['patient_id', 'zone_id', 'condition',
                                       'ai_risk_score', 'ai_followup_priority_score',
                                       'alert_reason', 'referral_status',
-                                      'min_spo2_pct', temp_col_traffic, # temp_col_traffic defined in alerts tab
+                                      'min_spo2_pct', temp_col_for_task_table,
                                       'fall_detected_today']
             task_df_display = patient_alerts_tasks_df[[col for col in task_list_cols_to_show if col in patient_alerts_tasks_df.columns]].copy()
-            task_df_display.rename(columns={temp_col_traffic: 'latest_temp_celsius'}, inplace=True)
+            task_df_display.rename(columns={temp_col_for_task_table: 'latest_temp_celsius'}, inplace=True, errors='ignore')
 
 
-            # Sort by AI Followup Priority, then by AI Risk
             sort_cols_task = []
             if 'ai_followup_priority_score' in task_df_display.columns: sort_cols_task.append('ai_followup_priority_score')
             if 'ai_risk_score' in task_df_display.columns: sort_cols_task.append('ai_risk_score')
-            
+
             if sort_cols_task:
                 task_df_display_sorted = task_df_display.sort_values(by=sort_cols_task, ascending=[False, False])
             else:
-                task_df_display_sorted = task_df_display # No AI scores to sort by specifically
+                task_df_display_sorted = task_df_display
 
             st.dataframe(
                 task_df_display_sorted, use_container_width=True, height=450,
@@ -259,7 +274,7 @@ else:
             )
             try:
                 csv_chw_tasks = task_df_display_sorted.to_csv(index=False).encode('utf-8')
-                st.download_button(label="📥 Download Task List (CSV)", data=csv_chw_tasks, file_name=f"chw_tasks_{selected_view_date_chw.strftime('%Y%m%d')}.csv", mime="text/csv", key="chw_task_list_download_v5")
+                st.download_button(label="📥 Download Task List (CSV)", data=csv_chw_tasks, file_name=f"chw_tasks_{selected_view_date_chw.strftime('%Y%m%d')}.csv", mime="text/csv", key="chw_task_list_download_v5") # Key updated
             except Exception as e_csv_chw:
                 logger.error(f"CHW Dashboard: Error preparing task list CSV: {e_csv_chw}", exc_info=True)
                 st.warning("Could not prepare task list for download.")
@@ -271,15 +286,12 @@ else:
     st.markdown("---")
     st.subheader(f"Overall Patient Wellness & Activity Trends (Last {app_config.DEFAULT_DATE_RANGE_DAYS_TREND} Days ending {selected_view_date_chw.strftime('%B %d, %Y')})")
 
-    trend_period_end_date_chw = pd.to_datetime(selected_view_date_chw).normalize() # Ensure it's a Timestamp
+    trend_period_end_date_chw = pd.to_datetime(selected_view_date_chw).normalize()
     trend_period_start_date_chw = trend_period_end_date_chw - pd.Timedelta(days=app_config.DEFAULT_DATE_RANGE_DAYS_TREND - 1)
 
-    # Use main health_df for trends (before daily filtering)
-    # Ensure encounter_date is datetime for trend filtering
     health_df_for_trends_chw = health_df_chw_main.copy()
     if not pd.api.types.is_datetime64_ns_dtype(health_df_for_trends_chw['encounter_date']):
         health_df_for_trends_chw['encounter_date'] = pd.to_datetime(health_df_for_trends_chw['encounter_date'], errors='coerce')
-    
     health_df_for_trends_chw.dropna(subset=['encounter_date'], inplace=True)
 
     chw_trend_df_source = health_df_for_trends_chw[
@@ -292,12 +304,13 @@ else:
     if not chw_trend_df_source.empty:
         trend_cols_chw = st.columns(2)
         with trend_cols_chw[0]:
-            # Trend of average AI risk score of patients encountered by CHWs
-            # Filter for CHW encounters if specific flag exists (e.g. 'chw_visit' == 1 or specific 'encounter_type')
-            chw_encounter_trend_df = chw_trend_df_source.copy() # By default, assume all data in scope is CHW-relevant
-            if 'chw_visit' in chw_encounter_trend_df.columns:
+            chw_encounter_trend_df = chw_trend_df_source.copy()
+            if 'chw_visit' in chw_encounter_trend_df.columns: # Prefer explicit 'chw_visit' if available
                 chw_encounter_trend_df = chw_encounter_trend_df[chw_encounter_trend_df['chw_visit'] == 1]
-            
+            elif 'encounter_type' in chw_encounter_trend_df.columns: # Fallback to encounter_type
+                 chw_encounter_trend_df = chw_encounter_trend_df[chw_encounter_trend_df['encounter_type'].str.contains("CHW", case=False, na=False)]
+            # If neither, assume all in chw_trend_df_source are CHW relevant for trends
+
             if not chw_encounter_trend_df.empty and 'ai_risk_score' in chw_encounter_trend_df.columns:
                 overall_risk_trend = get_trend_data(chw_encounter_trend_df, 'ai_risk_score', date_col='encounter_date', period='D', agg_func='mean')
                 if not overall_risk_trend.empty:
@@ -308,17 +321,16 @@ else:
                         show_anomalies=True, date_format="%d %b"
                     ), use_container_width=True)
                 else: st.caption("No AI risk score trend data available for CHW visited patients this period.")
-            else: st.caption("Missing 'ai_risk_score' or no CHW encounters for risk trend.")
+            else: st.caption("Missing 'ai_risk_score' or no relevant CHW encounters for risk trend.")
 
         with trend_cols_chw[1]:
-            # Trend of daily CHW visits (unique patients seen by CHW)
-            if not chw_encounter_trend_df.empty and 'patient_id' in chw_encounter_trend_df.columns: # using pre-filtered chw_encounter_trend_df
+            if not chw_encounter_trend_df.empty and 'patient_id' in chw_encounter_trend_df.columns:
                 visits_trend_chw_actual = get_trend_data(chw_encounter_trend_df, value_col='patient_id', date_col='encounter_date', period='D', agg_func='nunique')
                 if not visits_trend_chw_actual.empty:
                     st.plotly_chart(plot_annotated_line_chart(
                         visits_trend_chw_actual, "Daily Unique Patients Visited by CHW",
                         y_axis_title="Number of Patients Visited", height=app_config.COMPACT_PLOT_HEIGHT,
-                        show_anomalies=True, date_format="%d %b" # Example target daily visits: target_line=10
+                        show_anomalies=True, date_format="%d %b"
                     ), use_container_width=True)
                 else: st.caption("No CHW visits trend data available for this period.")
             else: st.caption("No CHW encounter data for visits trend.")
