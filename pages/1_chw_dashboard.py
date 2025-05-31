@@ -1,41 +1,40 @@
 # test/pages/1_chw_dashboard.py
-import streamlit as st
+import streamlit as st # Must be first Streamlit command in theory, but after all imports is fine too
 import pandas as pd
 import os
 import logging
 from datetime import date, timedelta 
 import numpy as np
 
-# These should be absolute imports assuming 'test/' is on sys.path
-# when running 'streamlit run test/app_home.py'
+# --- Page Configuration FIRST (best practice after only `import streamlit as st`) ---
+st.set_page_config(
+    page_title="CHW Dashboard - Health Hub", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
+
+# Project-specific absolute imports (assuming 'test/' is project root on sys.path)
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
     get_chw_summary,
     get_patient_alerts_for_chw,
-    get_trend_data # For Period Overview chart directly on this page
-) # NO TRAILING COMMA HERE if it was the source of an issue before.
-
+    get_trend_data 
+)
 from utils.ai_analytics_engine import apply_ai_models
+from utils.ui_visualization_helpers import plot_annotated_line_chart # Used by period overview chart directly
 
-# Component imports using relative path from within 'pages' package
+# Project-specific relative imports for components
 # Requires:
-# test/pages/__init__.py (can be empty)
-# test/pages/chw_components/__init__.py (can be empty)
+# test/pages/__init__.py (empty)
+# test/pages/chw_components/__init__.py (empty)
 from .chw_components import kpi_snapshots
 from .chw_components import epi_watch
 from .chw_components import alerts_display
 from .chw_components import tasks_display
 from .chw_components import trends_display
 
-from utils.ui_visualization_helpers import plot_annotated_line_chart # Used for period overview chart
-
-# --- Page Configuration (Must be first Streamlit command, but after imports) ---
-st.set_page_config(
-    page_title="CHW Dashboard - Health Hub", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
+# Logging setup after imports and page config
 logger = logging.getLogger(__name__)
 # ... (rest of the CHW dashboard file)
 
