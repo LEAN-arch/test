@@ -67,8 +67,13 @@ if health_df_chw_main.empty: st.error("🚨 Critical Error: Could not load CHW d
 st.title("🧑‍⚕️ Community Health Worker (CHW) Dashboard")
 st.markdown("**Daily Patient Prioritization, Field Insights, & Wellness Monitoring**"); st.markdown("---")
 
-if os.path.exists(app_config.APP_LOGO): st.sidebar.image(app_config.APP_LOGO, use_column_width='auto'); st.sidebar.markdown("---")
-st.sidebar.header("🗓️ CHW Filters")
+    if os.path.exists(app_config.APP_LOGO):
+        st.sidebar.image(app_config.APP_LOGO, width=180) # << ADJUSTED WIDTH
+        st.sidebar.markdown("---")
+    else:
+        logger.warning(f"Sidebar logo not found on CHW Dashboard at {app_config.APP_LOGO}")
+    
+    st.sidebar.header("🗓️ CHW Filters")
 
 min_date_overall = date.today() - timedelta(days=365); max_date_overall = date.today()
 if not health_df_chw_main.empty and 'encounter_date' in health_df_chw_main and health_df_chw_main['encounter_date'].notna().any():
