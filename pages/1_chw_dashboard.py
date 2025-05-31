@@ -20,6 +20,7 @@ st.set_page_config(
 # --- Absolute imports for packages at the project root level ('test/') ---
 # This requires 'test/__init__.py' (optional but good practice)
 # and 'test/config/__init__.py', 'test/utils/__init__.py' (essential)
+# Project-specific absolute imports from 'test/' root
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
@@ -30,18 +31,16 @@ from utils.core_data_processing import (
 from utils.ai_analytics_engine import apply_ai_models
 from utils.ui_visualization_helpers import plot_annotated_line_chart
 
-# --- Relative imports for components within the 'pages' package ---
-# This requires:
-# 1. 'test/pages/__init__.py' (to make 'pages' a package)
-# 2. 'test/pages/chw_components/__init__.py' (to make 'chw_components' a sub-package)
-from .chw_components import kpi_snapshots
-from .chw_components import epi_watch
-from .chw_components import alerts_display
-from .chw_components import tasks_display
-from .chw_components import trends_display
+# CORRECTED Component imports (absolute from 'pages')
+# This assumes 'pages' is effectively a top-level package when streamlit runs pages
+# This REQUIRES test/pages/__init__.py
+# And also test/pages/chw_components/__init__.py
+from pages.chw_components import kpi_snapshots
+from pages.chw_components import epi_watch
+from pages.chw_components import alerts_display
+from pages.chw_components import tasks_display
+from pages.chw_components import trends_display
 
-
-# Logging setup
 logger = logging.getLogger(__name__)
 # ... (rest of the CHW dashboard file)
 
