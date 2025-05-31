@@ -149,9 +149,10 @@ selected_start_date_dist_trends, selected_end_date_dist_trends = st.sidebar.date
     help="This date range applies to time-series trend charts for health and environmental data."
 )
 
+# --- Filter dataframes based on selected date range (Corrected) ---
 filtered_health_for_trends_dist = pd.DataFrame()
-if health_records_district_main is not None and not health_records_district_main.empty:
-    health_records_district_main['encounter_date'] = pd.to_datetime(health_records_district_main['encounter_date'], errors='coerce') # Ensure datetime
+if health_records_district_main is not None and not health_records_district_main.empty and 'encounter_date' in health_records_district_main.columns:
+    health_records_district_main['encounter_date'] = pd.to_datetime(health_records_district_main['encounter_date'], errors='coerce')
     health_records_district_main['encounter_date_obj_trend'] = health_records_district_main['encounter_date'].dt.date
     valid_dates_filter_health_trend = health_records_district_main['encounter_date_obj_trend'].notna()
     df_health_trend_to_filter = health_records_district_main[valid_dates_filter_health_trend].copy()
@@ -162,8 +163,8 @@ if health_records_district_main is not None and not health_records_district_main
         ].copy()
 
 filtered_iot_for_trends_dist = pd.DataFrame()
-if iot_records_district_main is not None and not iot_records_district_main.empty:
-    iot_records_district_main['timestamp'] = pd.to_datetime(iot_records_district_main['timestamp'], errors='coerce') # Ensure datetime
+if iot_records_district_main is not None and not iot_records_district_main.empty and 'timestamp' in iot_records_district_main.columns:
+    iot_records_district_main['timestamp'] = pd.to_datetime(iot_records_district_main['timestamp'], errors='coerce')
     iot_records_district_main['timestamp_date_obj_trend'] = iot_records_district_main['timestamp'].dt.date
     valid_dates_filter_iot_trend = iot_records_district_main['timestamp_date_obj_trend'].notna()
     df_iot_trend_to_filter = iot_records_district_main[valid_dates_filter_iot_trend].copy()
@@ -230,8 +231,7 @@ if district_gdf_main_enriched is not None and not district_gdf_main_enriched.emp
     gdf_for_area_calc = district_gdf_main_enriched.copy()
     if 'population' in gdf_for_area_calc.columns:
         try:
-            if gdf_for_area_calc.crs and not gdf_for_area_calc.crs.is_geographic:
-                gdf_for_area_calc['area_sqkm_calc'] = gdf_for_area_calc.geometry.area / 1_000_000
+            if gdf_for_area_calc.crs and not gdf_for_area_calc.crs.is_geographic: gdf_for_area_calc['area_sqkm_calc'] = gdf_for_area_calc.geometry.area / 1_000_000
             elif gdf_for_area_calc.crs and gdf_for_area_calc.crs.is_geographic:
                 utm_crs = gdf_for_area_calc.estimate_utm_crs()
                 if utm_crs: gdf_for_area_calc['area_sqkm_calc'] = gdf_for_area_calc.to_crs(utm_crs).geometry.area / 1_000_000
@@ -250,10 +250,12 @@ if district_gdf_main_enriched is not None and not district_gdf_main_enriched.emp
         selected_map_metric_config = available_map_metrics_for_select.get(selected_map_metric_display_name)
         if selected_map_metric_config:
             map_val_col = selected_map_metric_config["col"]; map_colorscale = selected_map_metric_config["colorscale"]
-            hover_cols_for_map = ['name', map_val_col, 'population', 'num_clinics', 'facility_coverage_score'] # Base list
-            final_hover_cols_map = list(dict.fromkeys([col for col in hover_cols_for_map if col in district_gdf_main_enriched.columns and col != map_val_col])) # Add value_col separately to ensure it's there, others if they exist and aren't the main value
-            final_hover_cols_map.insert(0, map_val_col) # Ensure main value is shown
-            map_figure = plot_layered_choropleth_map(gdf=district_gdf_main_enriched, value_col=map_val_col, title=f"District Map: {selected_map_metric_display_name}", id_col='zone_id', color_continuous_scale=map_colorscale, hover_cols=list(dict.fromkeys(final_hover_cols_map)), height=app_config.MAP_PLOT_HEIGHT, mapbox_style=app_config.MAPBOX_STYLE)
+            hover_cols_for_map = ['name', map_val_col, 'population', 'num_clinics', 'facility_coverage_score']
+            final_hover_cols_map = list(dict.fromkeys([col for col in hover_cols_for_map if col in district_gdf_main_enriched.columns])) # Make unique and ensure exist
+            # Ensure map_val_col is first for primary display on hover if not already covered by 'name' (which px.choropleth_mapbox uses for main title on hover)
+            if map_val_col not in final_hover_cols_map and map_val_col != 'name': final_hover_cols_map.insert(0, map_val_col)
+
+            map_figure = plot_layered_choropleth_map(gdf=district_gdf_main_enriched, value_col=map_val_col, title=f"District Map: {selected_map_metric_display_name}", id_col='zone_id', color_continuous_scale=map_colorscale, hover_cols=final_hover_cols_map, height=app_config.MAP_PLOT_HEIGHT, mapbox_style=app_config.MAPBOX_STYLE)
             st.plotly_chart(map_figure, use_container_width=True)
     else: st.warning("No metrics available for map visualization. Check data enrichment.")
 else: st.error("🚨 District map cannot be displayed: Enriched zone geographic data is unusable or unavailable.")
@@ -324,14 +326,14 @@ with tab_dist_comparison:
                     colorscale_name = details_style_comp.get("colorscale", "Blues")
                     try: styler_obj_comp_dist = styler_obj_comp_dist.background_gradient(subset=[col_name_to_style], cmap=colorscale_name, axis=0)
                     except Exception as e_style: logger.warning(f"Could not apply background_gradient for {col_name_to_style} with cmap {colorscale_name}: {e_style}")
-            st.dataframe(styler_obj_comp_dist, use_container_width=True, height=min(len(df_for_comp_table_display) * 45 + 60, 650))
+            st.dataframe(styler_obj_comp_dist, use_container_width=True, height=min(len(df_for_comp_table_display) * 45 + 70, 700)) # Adjusted height slightly for scrollbar room
             
             st.subheader("Visual Comparison Chart"); selected_bar_metric_name_dist_comp_viz = st.selectbox("Select Metric for Bar Chart Comparison:", list(comp_table_metrics_dict_dist.keys()), key="district_comp_barchart_v8")
             selected_bar_details_dist_comp_viz = comp_table_metrics_dict_dist.get(selected_bar_metric_name_dist_comp_viz)
             if selected_bar_details_dist_comp_viz:
                 bar_col_for_comp_viz = selected_bar_details_dist_comp_viz["col"]; text_format_bar = selected_bar_details_dist_comp_viz.get("format", ",.1f")
-                sort_asc_bar_viz = "_r" not in selected_bar_details_dist_comp_viz.get("colorscale", "")
-                st.plotly_chart(plot_bar_chart(district_gdf_main_enriched, x_col='name', y_col=bar_col_for_comp_viz, title=f"{selected_bar_metric_name_dist_comp_viz} by Zone", x_axis_title="Zone Name", height=app_config.DEFAULT_PLOT_HEIGHT + 150, sort_values_by=bar_col_for_comp_viz, ascending=sort_asc_bar_viz, text_auto=True, text_format=text_format_bar), use_container_width=True)
+                sort_asc_bar_viz = "_r" not in selected_bar_details_dist_comp_viz.get("colorscale", "") # Sort ascending if colorscale not reversed (higher is better)
+                st.plotly_chart(plot_bar_chart(district_gdf_main_enriched.copy(), x_col='name', y_col=bar_col_for_comp_viz, title=f"{selected_bar_metric_name_dist_comp_viz} by Zone", x_axis_title="Zone Name", height=app_config.DEFAULT_PLOT_HEIGHT + 150, sort_values_by=bar_col_for_comp_viz, ascending=sort_asc_bar_viz, text_auto=True, text_format=text_format_bar), use_container_width=True)
         else: st.info("No metrics available for Zonal Comparison. Check GDF enrichment.")
     else: st.info("Zonal comparison requires enriched geographic zone data.")
 
@@ -349,12 +351,16 @@ with tab_dist_interventions:
         available_criteria_for_intervention_dist = {}
         for name_crit_int, func_crit_int in criteria_lambdas_intervention_dist.items():
             try:
-                test_apply_df = district_gdf_main_enriched.head(1) if not district_gdf_main_enriched.empty else pd.DataFrame(columns=district_gdf_main_enriched.columns)
-                if test_apply_df.empty and not district_gdf_main_enriched.columns.empty : test_apply_df = pd.DataFrame(columns=district_gdf_main_enriched.columns)
-                elif test_apply_df.empty and district_gdf_main_enriched.columns.empty : test_apply_df = pd.DataFrame(columns=['avg_risk_score','facility_coverage_score','prevalence_per_1000','active_tb_cases','zone_avg_co2'])
-                func_crit_int(test_apply_df)
+                # Test apply requires a DataFrame with expected columns. Create a dummy one if gdf is empty or lacks columns.
+                test_df_cols = ['avg_risk_score', 'facility_coverage_score', 'prevalence_per_1000', 'active_tb_cases', 'zone_avg_co2'] # Expected by lambdas
+                if not district_gdf_main_enriched.empty and all(c in district_gdf_main_enriched.columns for c in test_df_cols):
+                    test_apply_df = district_gdf_main_enriched.head(1)
+                else: # Create a dummy DataFrame with expected columns for lambda testing if gdf is problematic
+                    test_apply_df = pd.DataFrame(columns=test_df_cols, data=[[0]*len(test_df_cols)])
+
+                func_crit_int(test_apply_df) # Test if lambda can be applied
                 available_criteria_for_intervention_dist[name_crit_int] = func_crit_int
-            except Exception as e_crit_test: logger.debug(f"Intervention criterion '{name_crit_int}' not available: {e_crit_test}")
+            except Exception as e_crit_test: logger.debug(f"Intervention criterion '{name_crit_int}' not available for selection: {e_crit_test}")
         
         if not available_criteria_for_intervention_dist: st.warning("No intervention criteria can be applied. Relevant data columns may be missing.")
         else:
@@ -368,8 +374,8 @@ with tab_dist_interventions:
                     try:
                         current_crit_mask_interv = crit_func_selected_interv(district_gdf_main_enriched)
                         if isinstance(current_crit_mask_interv, pd.Series) and current_crit_mask_interv.dtype == 'bool': final_intervention_mask_dist = final_intervention_mask_dist | current_crit_mask_interv.fillna(False)
-                        else: logger.warning(f"Intervention criterion '{crit_name_selected_interv}' non-boolean result. Type: {type(current_crit_mask_interv)}")
-                    except Exception as e_crit_apply_interv: logger.error(f"Error applying criterion '{crit_name_selected_interv}': {e_crit_apply_interv}", exc_info=True); st.warning(f"Could not apply: {crit_name_selected_interv}. Error: {str(e_crit_apply_interv)[:100]}...")
+                        else: logger.warning(f"Intervention criterion '{crit_name_selected_interv}' non-boolean. Type: {type(current_crit_mask_interv)}")
+                    except Exception as e_crit_apply_interv: logger.error(f"Error applying '{crit_name_selected_interv}': {e_crit_apply_interv}", exc_info=True); st.warning(f"Could not apply: {crit_name_selected_interv}. Error: {str(e_crit_apply_interv)[:100]}...")
                 priority_zones_df_for_interv = district_gdf_main_enriched[final_intervention_mask_dist].copy()
                 if not priority_zones_df_for_interv.empty:
                     st.markdown(f"###### Identified **{len(priority_zones_df_for_interv)}** Zone(s) Meeting Selected Intervention Criteria:")
