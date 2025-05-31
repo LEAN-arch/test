@@ -114,7 +114,7 @@ with col3:
 st.sidebar.header(f"{app_config.APP_TITLE.split(' ')[0]} Hub Navigation") # General title
 # Add the APP_LOGO to the app_home.py sidebar
 if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, width=100) # Using the smaller, consistent sidebar logo size
+    st.sidebar.image(app_config.APP_LOGO, width=230) # Using the smaller, consistent sidebar logo size
 st.sidebar.caption(f"Version {app_config.APP_VERSION}")
 st.sidebar.markdown("---")
 st.sidebar.markdown("### About This Platform")
