@@ -105,7 +105,7 @@ st.markdown("---")
 
 # --- Sidebar Filters & Date Range Setup ---
 if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, width=2300) # << ADJUSTED WIDTH
+    st.sidebar.image(app_config.APP_LOGO, width=230) # << ADJUSTED WIDTH
     st.sidebar.markdown("---")
 else:
     logger.warning(f"Sidebar logo not found on Clinic Dashboard at {app_config.APP_LOGO}")
