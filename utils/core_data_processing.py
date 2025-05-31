@@ -396,19 +396,53 @@ def get_clinic_summary(health_df_period: pd.DataFrame) -> Dict[str, Any]:
         if isinstance(actual_test_keys, str): actual_test_keys = [actual_test_keys]
 
         # Filter df using actual_test_keys which should match the 'test_type' column in df
-        grp_df = df[df['test_type'].isin(actual_test_keys)]
-        if grp_df.empty: continue; stats = {}
-        grp_concl = grp_df[~grp_df['test_result'].isin(['Pending', 'Rejected Sample', 'Unknown', 'N/A', 'nan','Indeterminate']) & grp_df['test_turnaround_days'].notna()].copy()
-        if not grp_concl.empty:
-            stats["positive_rate"] = (grp_concl[grp_concl['test_result'] == 'Positive'].shape[0] / len(grp_concl)) * 100 if len(grp_concl) > 0 else 0.0
-            stats["avg_tat_days"] = grp_concl['test_turnaround_days'].mean()
-            tgt_tat = cfg_props.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
-            grp_concl.loc[:, 'tat_met_specific'] = grp_concl['test_turnaround_days'] <= tgt_tat
-            stats["perc_met_tat_target"] = grp_concl['tat_met_specific'].mean() * 100 if not grp_concl.empty else 0.0
-        else: stats = {"positive_rate":0.0, "avg_tat_days":np.nan, "perc_met_tat_target":0.0}
-        stats["pending_count"] = grp_df[grp_df['test_result'] == 'Pending']['patient_id'].nunique()
-        stats["rejected_count"] = grp_df[grp_df['sample_status'] == 'Rejected']['patient_id'].nunique()
-        stats["total_conducted_conclusive"] = len(grp_concl); test_summary_details[disp_name] = stats
+        grp_concl = grp_df[
+            ~grp_df['test_result'].isin(['Pending', 'Rejected Sample', 'Unknown', 'N/A', 'nan','Indeterminate']) & 
+            grp_df['test_turnaround_days'].notna()
+        ].copy() # Important to use .copy() if modifying later (like adding 'tat_met_specific')
+        
+        # Initialize stats for this group
+        stats = {
+            "positive_rate": 0.0,
+            "avg_tat_days": np.nan, # Use np.nan for averages if no data
+            "perc_met_tat_target": 0.0,
+            "pending_count": 0, # Will be calculated from grp_df
+            "rejected_count": 0, # Will be calculated from grp_df
+            "total_conducted_conclusive": 0
+        }
+
+        if not grp_concl.empty: # This means grp_concl has at least one row
+            stats["total_conducted_conclusive"] = len(grp_concl) # Safe now
+            
+            positive_cases_in_conclusive = grp_concl[grp_concl['test_result'] == 'Positive'].shape[0]
+            # Ensure len(grp_concl) is truly greater than 0 for division
+            if len(grp_concl) > 0:
+                stats["positive_rate"] = (positive_cases_in_conclusive / len(grp_concl)) * 100
+            else: # Should not be reached if `if not grp_concl.empty:` is true, but defensive.
+                stats["positive_rate"] = 0.0 
+            
+            if grp_concl['test_turnaround_days'].notna().any(): # Ensure there are TAT values to average
+                 stats["avg_tat_days"] = grp_concl['test_turnaround_days'].mean()
+            else:
+                stats["avg_tat_days"] = np.nan # If no valid TAT days
+
+            target_tat_specific = cfg_props.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
+            # Use .loc to avoid SettingWithCopyWarning for 'tat_met_specific'
+            grp_concl.loc[:, 'tat_met_specific'] = grp_concl['test_turnaround_days'] <= target_tat_specific
+            
+            if not grp_concl['tat_met_specific'].empty: # Check if the series has values
+                stats["perc_met_tat_target"] = grp_concl['tat_met_specific'].mean() * 100
+            else:
+                stats["perc_met_tat_target"] = 0.0
+        # else: (if grp_concl is empty, stats remain as initialized defaults for numeric values)
+
+        # These are calculated from grp_df (which includes pending/rejected)
+        if 'test_result' in grp_df.columns: # Ensure column exists
+            stats["pending_count"] = grp_df[grp_df['test_result'] == 'Pending']['patient_id'].nunique()
+        if 'sample_status' in grp_df.columns: # Ensure column exists
+            stats["rejected_count"] = grp_df[grp_df['sample_status'] == 'Rejected']['patient_id'].nunique()
+        
+        test_summary_details[disp_name] = stats
     summary["test_summary_details"] = test_summary_details
     
     if 'item' in df.columns and 'item_stock_agg_zone' in df.columns and 'consumption_rate_per_day' in df.columns and app_config.KEY_DRUG_SUBSTRINGS_SUPPLY:
