@@ -56,7 +56,7 @@ load_css(app_config.STYLE_CSS_PATH)
 header_cols = st.columns([0.12, 0.88]) # Adjusted column ratio slightly for a potentially larger logo
 with header_cols[0]:
     if os.path.exists(app_config.APP_LOGO):
-        st.image(app_config.APP_LOGO, width=100) # << INCREASED LOGO WIDTH
+        st.image(app_config.APP_LOGO, width=300) # << INCREASED LOGO WIDTH
     else:
         logger.warning(f"Header logo not found at: {app_config.APP_LOGO}")
         st.markdown("❤️", unsafe_allow_html=True) # Fallback emoji icon
