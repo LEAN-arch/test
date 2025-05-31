@@ -2,9 +2,20 @@
 import streamlit as st
 import pandas as pd
 import os
+import sys # <<<< IMPORT SYS
 import logging
 from datetime import date, timedelta 
 import numpy as np
+
+# --- Explicitly add project root to sys.path for robust imports ---
+# This assumes this file is in 'test/pages/' and the project root is 'test/'
+# which contains 'utils/', 'config/', 'pages/' etc.
+PROJECT_ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if PROJECT_ROOT_PATH not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT_PATH)
+    # Optional: For debugging, you can print the path modification
+    # print(f"DEBUG [2_clinic_dashboard.py]: Added to sys.path: {PROJECT_ROOT_PATH}", file=sys.stderr)
+    # print(f"DEBUG [2_clinic_dashboard.py]: Current sys.path: {sys.path}", file=sys.stderr)
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -13,35 +24,29 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Project-specific absolute imports
+# Now, these absolute imports should work reliably:
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
     load_iot_clinic_environment_data,
     get_clinic_summary,
-    get_clinic_environmental_summary # Key summary functions used by components or directly
+    get_ clinic_environmental_summary
 )
 from utils.ai_analytics_engine import (
     apply_ai_models
-    # SupplyForecastingModel will be imported by supply_chain_tab.py if needed there
 )
-# ui_visualization_helpers are imported by components as needed
 
-# Project-specific relative imports for components
-# Requires:
-# test/pages/__init__.py (empty)
-# test/pages/clinic_components/__init__.py (empty)
-# ... other imports ...
+# And imports for components should also work treating 'pages' as a top-level package found via project root
 from pages.clinic_components import kpi_display
 from pages.clinic_components import environmental_kpis
 from pages.clinic_components import epi_module
 from pages.clinic_components import testing_insights_tab
 from pages.clinic_components import supply_chain_tab
 from pages.clinic_components import patient_focus_tab
-from pages.clinic_components import environment_details_tab
-# ...
+from pages.clinic_components import environment_details_tab # <--- The line from traceback
 
 logger = logging.getLogger(__name__)
+
 
 @st.cache_resource
 def load_css_clinic():
