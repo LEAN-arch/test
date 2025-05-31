@@ -71,7 +71,11 @@ st.markdown("---")
 
 # --- Sidebar Filters ---
 if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, use_column_width='auto'); st.sidebar.markdown("---")
+    st.sidebar.image(app_config.APP_LOGO, width=230) # << ADJUSTED WIDTH
+    st.sidebar.markdown("---")
+else:
+    logger.warning(f"Sidebar logo not found on Population Analytics Dashboard at {app_config.APP_LOGO}") # Added logger if not present
+
 st.sidebar.header("🔎 Analytics Filters")
 
 min_date_pop = date.today() - timedelta(days=365)
