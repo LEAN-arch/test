@@ -105,7 +105,11 @@ st.markdown("---")
 
 # --- Sidebar Filters & Date Range Setup ---
 if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, use_column_width='auto'); st.sidebar.markdown("---")
+    st.sidebar.image(app_config.APP_LOGO, width=2300) # << ADJUSTED WIDTH
+    st.sidebar.markdown("---")
+else:
+    logger.warning(f"Sidebar logo not found on Clinic Dashboard at {app_config.APP_LOGO}")
+
 st.sidebar.header("🗓️ Clinic Filters")
 
 # Determine date range from available data (Corrected from previous fixes)
