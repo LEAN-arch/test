@@ -149,8 +149,8 @@ if health_data_available:
             (df_health_to_filter['encounter_date_obj'] >= selected_start_date_cl) &
             (df_health_to_filter['encounter_date_obj'] <= selected_end_date_cl)
         ].copy()
-    else:
-        filtered_health_df_clinic = pd.DataFrame(columns=health_df_clinic_main.columns) # Ensure schema if empty
+    else: # df_health_to_filter was empty after removing NaT dates
+        filtered_health_df_clinic = pd.DataFrame(columns=health_df_clinic_main.columns)
     logger.info(f"Clinic Health Data: Filtered from {selected_start_date_cl} to {selected_end_date_cl}, resulting in {len(filtered_health_df_clinic)} encounters.")
     if filtered_health_df_clinic.empty and health_df_clinic_main[health_df_clinic_main['encounter_date'].notna()].shape[0] > 0:
         st.info(f"ℹ️ No health encounter data available for the selected period: {selected_start_date_cl.strftime('%d %b %Y')} to {selected_end_date_cl.strftime('%d %b %Y')}.")
@@ -165,8 +165,8 @@ if iot_data_available:
             (df_iot_to_filter['timestamp_date_obj'] >= selected_start_date_cl) &
             (df_iot_to_filter['timestamp_date_obj'] <= selected_end_date_cl)
         ].copy()
-    else:
-        filtered_iot_df_clinic = pd.DataFrame(columns=iot_df_clinic_main.columns) # Ensure schema if empty
+    else: # df_iot_to_filter was empty
+        filtered_iot_df_clinic = pd.DataFrame(columns=iot_df_clinic_main.columns)
     logger.info(f"Clinic IoT Data: Filtered from {selected_start_date_cl} to {selected_end_date_cl}, resulting in {len(filtered_iot_df_clinic)} records.")
     if filtered_iot_df_clinic.empty and iot_df_clinic_main[iot_df_clinic_main['timestamp'].notna()].shape[0] > 0:
          st.info(f"ℹ️ No IoT environmental data available for the selected period: {selected_start_date_cl.strftime('%d %b %Y')} to {selected_end_date_cl.strftime('%d %b %Y')}.")
@@ -175,7 +175,10 @@ elif not iot_data_available:
 
 # --- Display KPIs ---
 date_range_display_str = f"({selected_start_date_cl.strftime('%d %b %Y')} - {selected_end_date_cl.strftime('%d %b %Y')})"
-clinic_service_kpis = get_clinic_summary(filtered_health_df_clinic if not filtered_health_df_clinic.empty else pd.DataFrame(columns=health_df_clinic_main.columns if health_data_available else []))
+# Pass an empty DataFrame with the correct schema if filtered_health_df_clinic is empty
+# This helps get_clinic_summary return default values rather than erroring on missing columns
+base_health_cols = health_df_clinic_main.columns if health_data_available else []
+clinic_service_kpis = get_clinic_summary(filtered_health_df_clinic if not filtered_health_df_clinic.empty else pd.DataFrame(columns=base_health_cols))
 if not filtered_health_df_clinic.empty:
     logger.debug(f"Clinic Service KPIs calculated for period: {clinic_service_kpis}")
 else:
@@ -256,14 +259,14 @@ with tab_tests:
                 if selected_test_group_display == "All Critical Tests Summary":
                     st.markdown("###### **Performance Metrics for All Critical Tests (Period Average)**")
                     crit_test_table_data = []
-                    for group_disp_name, stats in detailed_test_stats_tab.items(): # Corrected: use detailed_test_stats_tab
+                    for group_disp_name, stats in detailed_test_stats_tab.items():
                         original_group_key = next((k for k, v_cfg in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if v_cfg.get("display_name") == group_disp_name), None)
                         if original_group_key and app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(original_group_key, {}).get("critical"):
                             crit_test_table_data.append({"Test Group": group_disp_name, "Positivity (%)": stats.get("positive_rate", 0.0), "Avg. TAT (Days)": stats.get("avg_tat_days", 0.0), "% Met TAT Target": stats.get("perc_met_tat_target", 0.0), "Pending Count": stats.get("pending_count", 0), "Rejected Count": stats.get("rejected_count", 0), "Total Conclusive": stats.get("total_conducted_conclusive", 0)})
                     if crit_test_table_data: st.dataframe(pd.DataFrame(crit_test_table_data), use_container_width=True, hide_index=True, column_config={"Positivity (%)": st.column_config.NumberColumn(format="%.1f%%"), "Avg. TAT (Days)":st.column_config.NumberColumn(format="%.1f"),"% Met TAT Target":st.column_config.ProgressColumn(format="%.1f%%",min_value=0,max_value=100)})
                     else: st.caption("No data for critical tests in this period or no critical tests configured.")
                 
-                elif selected_test_group_display in detailed_test_stats_tab: # Corrected: check against detailed_test_stats_tab
+                elif selected_test_group_display in detailed_test_stats_tab:
                     stats_selected_group = detailed_test_stats_tab[selected_test_group_display]
                     st.markdown(f"###### **Detailed Metrics for: {selected_test_group_display}**")
                     kpi_cols_test_detail_tab = st.columns(5);
@@ -278,13 +281,13 @@ with tab_tests:
                     
                     if original_key_for_selected:
                         cfg_selected_test = app_config.KEY_TEST_TYPES_FOR_ANALYSIS[original_key_for_selected]
-                        actual_test_types_for_plot = cfg_selected_test.get("types_in_group", [original_key_for_selected])
-                        if isinstance(actual_test_types_for_plot, str): actual_test_types_for_plot = [actual_test_types_for_plot]
+                        actual_test_keys_for_plot = cfg_selected_test.get("types_in_group", [original_key_for_selected]) # These are the keys used in 'test_type' column
+                        if isinstance(actual_test_keys_for_plot, str): actual_test_keys_for_plot = [actual_test_keys_for_plot]
                         target_tat_for_plot = cfg_selected_test.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
 
                         with plot_cols_test_detail_tab[0]:
                             st.markdown(f"**Daily Avg. TAT for {selected_test_group_display}**")
-                            df_tat_plot_src = filtered_health_df_clinic[(filtered_health_df_clinic['test_type'].isin(actual_test_types_for_plot)) & (filtered_health_df_clinic['test_turnaround_days'].notna()) & (~filtered_health_df_clinic['test_result'].isin(['Pending','Unknown','Rejected Sample', 'Indeterminate']))].copy()
+                            df_tat_plot_src = filtered_health_df_clinic[(filtered_health_df_clinic['test_type'].isin(actual_test_keys_for_plot)) & (filtered_health_df_clinic['test_turnaround_days'].notna()) & (~filtered_health_df_clinic['test_result'].isin(['Pending','Unknown','Rejected Sample', 'Indeterminate']))].copy()
                             if not df_tat_plot_src.empty:
                                 tat_trend_plot = get_trend_data(df_tat_plot_src, 'test_turnaround_days', period='D', date_col='encounter_date', agg_func='mean')
                                 if not tat_trend_plot.empty: st.plotly_chart(plot_annotated_line_chart(tat_trend_plot, f"Avg. TAT Trend", y_axis_title="Days", target_line=target_tat_for_plot, target_label=f"Target {target_tat_for_plot}d", height=app_config.COMPACT_PLOT_HEIGHT-20, date_format="%d %b"), use_container_width=True)
@@ -292,13 +295,13 @@ with tab_tests:
                             else: st.caption("No conclusive tests with TAT data for this group.")
                         with plot_cols_test_detail_tab[1]:
                             st.markdown(f"**Daily Test Volume for {selected_test_group_display}**")
-                            df_vol_plot_src = filtered_health_df_clinic[filtered_health_df_clinic['test_type'].isin(actual_test_types_for_plot)].copy()
+                            df_vol_plot_src = filtered_health_df_clinic[filtered_health_df_clinic['test_type'].isin(actual_test_keys_for_plot)].copy()
                             if not df_vol_plot_src.empty:
                                 conducted_vol = get_trend_data(df_vol_plot_src[~df_vol_plot_src['test_result'].isin(['Pending','Unknown','Rejected Sample', 'Indeterminate'])], 'patient_id', date_col='encounter_date', period='D', agg_func='count').rename("Conclusive")
                                 pending_vol = get_trend_data(df_vol_plot_src[df_vol_plot_src['test_result'] == 'Pending'], 'patient_id', date_col='encounter_date', period='D', agg_func='count').rename("Pending")
                                 if not conducted_vol.empty or not pending_vol.empty:
                                     vol_trend_df = pd.concat([conducted_vol, pending_vol], axis=1).fillna(0).reset_index()
-                                    date_col_melt = 'encounter_date' if 'encounter_date' in vol_trend_df.columns else ('date' if 'date' in vol_trend_df.columns else vol_trend_df.columns[0])
+                                    date_col_melt = 'encounter_date' if 'encounter_date' in vol_trend_df.columns else ('date' if 'date' in vol_trend_df.columns else vol_trend_df.columns[0]) # Ensure correct date col name
                                     vol_melt_df = vol_trend_df.melt(id_vars=date_col_melt, value_vars=['Conclusive', 'Pending'], var_name='Status', value_name='Count')
                                     st.plotly_chart(plot_bar_chart(vol_melt_df, x_col=date_col_melt, y_col='Count', color_col='Status', title=f"Daily Volume Trend", barmode='stack', height=app_config.COMPACT_PLOT_HEIGHT-20), use_container_width=True)
                                 else: st.caption("No volume data.")
@@ -311,15 +314,12 @@ with tab_tests:
         date_col_for_pending_calc = 'sample_collection_date' if 'sample_collection_date' in op_df_source_clinic.columns and op_df_source_clinic['sample_collection_date'].notna().any() else 'encounter_date'
         overdue_df_clinic = op_df_source_clinic[(op_df_source_clinic['test_result'] == 'Pending') & (op_df_source_clinic[date_col_for_pending_calc].notna())].copy()
         if not overdue_df_clinic.empty:
-            overdue_df_clinic['days_pending_calc'] = (pd.Timestamp('today').normalize() - pd.to_datetime(overdue_df_clinic[date_col_for_pending_calc])).dt.days
-            def get_specific_overdue_threshold(test_type_name_or_disp): # Parameter name should match test_type in df (which are keys)
-                test_config = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(test_type_name_or_disp) # Direct lookup if test_type_name_or_disp is a key
-                if not test_config: # Fallback if test_type column stores display_name (less ideal)
-                    original_key = next((k for k,v_cfg in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if v_cfg.get("display_name") == test_type_name_or_disp), None);
-                    if original_key: test_config = app_config.KEY_TEST_TYPES_FOR_ANALYSIS[original_key]
+            overdue_df_clinic['days_pending_calc'] = (pd.Timestamp('today').normalize() - pd.to_datetime(overdue_df_clinic[date_col_for_pending_calc], errors='coerce')).dt.days # errors='coerce'
+            def get_specific_overdue_threshold(test_type_key_from_data): # Assumes test_type_key_from_data is an original key
+                test_config = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(test_type_key_from_data)
                 buffer_days = 2
                 return (test_config.get('target_tat_days', app_config.OVERDUE_PENDING_TEST_DAYS) if test_config else app_config.OVERDUE_PENDING_TEST_DAYS) + buffer_days
-            overdue_df_clinic['effective_overdue_days'] = overdue_df_clinic['test_type'].apply(get_specific_overdue_threshold)
+            overdue_df_clinic['effective_overdue_days'] = overdue_df_clinic['test_type'].apply(get_specific_overdue_threshold) # Apply to test_type (original key)
             overdue_df_final_display_clinic = overdue_df_clinic[overdue_df_clinic['days_pending_calc'] > overdue_df_clinic['effective_overdue_days']]
             if not overdue_df_final_display_clinic.empty: st.dataframe(overdue_df_final_display_clinic[['patient_id', 'test_type', date_col_for_pending_calc, 'days_pending_calc', 'effective_overdue_days']].sort_values('days_pending_calc', ascending=False).head(10), column_config={date_col_for_pending_calc:st.column_config.DateColumn("Sample/Encounter Date"), "days_pending_calc":st.column_config.NumberColumn("Days Pending",format="%d"), "effective_overdue_days":st.column_config.NumberColumn("Overdue If > (days)",format="%d")}, height=300, use_container_width=True)
             else: st.success(f"✅ No tests pending longer than their target TAT + buffer.")
@@ -358,7 +358,8 @@ with tab_supplies:
                         forecast_title = (f"Forecast: {selected_drug_for_forecast}<br><sup_>Stock@Start: {current_info.get('current_stock',0):.0f} | Base Use: {current_info.get('consumption_rate',0):.1f}/d | Est. Stockout: {pd.to_datetime(current_info.get('estimated_stockout_date')).strftime('%d %b %Y') if pd.notna(current_info.get('estimated_stockout_date')) else 'N/A'}</sup>")
                         plot_series = item_specific_forecast_df.set_index('date')['forecast_days']
                         lc_series, uc_series = (item_specific_forecast_df.set_index('date').get('lower_ci'), item_specific_forecast_df.set_index('date').get('upper_ci')) if not use_ai_forecast else (None, None)
-                        st.plotly_chart(plot_annotated_line_chart(data_series=plot_series, title=forecast_title, y_axis_title="Forecasted Days of Supply", target_line=app_config.CRITICAL_SUPPLY_DAYS, target_label=f"Critical ({app_config.CRITICAL_SUPPLY_DAYS} Days)", show_ci=(lc_series is not None and not lc_series.empty), lower_bound_series=lc_series, upper_bound_series=uc_series, height=app_config.DEFAULT_PLOT_HEIGHT + 60, show_anomalies=False), use_container_width=True)
+                        show_ci_plot = (lc_series is not None and not lc_series.empty and uc_series is not None and not uc_series.empty and not use_ai_forecast) # ensure both exist
+                        st.plotly_chart(plot_annotated_line_chart(data_series=plot_series, title=forecast_title, y_axis_title="Forecasted Days of Supply", target_line=app_config.CRITICAL_SUPPLY_DAYS, target_label=f"Critical ({app_config.CRITICAL_SUPPLY_DAYS} Days)", show_ci=show_ci_plot, lower_bound_series=lc_series, upper_bound_series=uc_series, height=app_config.DEFAULT_PLOT_HEIGHT + 60, show_anomalies=False), use_container_width=True)
                         if use_ai_forecast: st.caption("*Advanced forecast uses a simulated AI model.*")
                     else: st.info(f"No forecast data for {selected_drug_for_forecast}.")
         else: st.warning("Supply forecast could not be generated.")
@@ -378,8 +379,10 @@ with tab_patients:
                 else: st.caption("No patient load data for key conditions in period.")
             else: st.caption("No patients with key conditions in period.")
         else: st.info("Patient Load chart: Missing essential columns.")
+        
         st.markdown("---"); st.markdown("###### **Flagged Patient Cases for Clinical Review (Selected Period)**")
         flagged_patients_clinic_review_df = get_patient_alerts_for_clinic(filtered_health_df_clinic, risk_threshold_moderate=app_config.RISK_THRESHOLDS['moderate'])
+        
         if flagged_patients_clinic_review_df is not None and not flagged_patients_clinic_review_df.empty:
             st.markdown(f"Found **{len(flagged_patients_clinic_review_df)}** unique patient encounters flagged for review.")
             cols_for_alert_table_clinic = ['patient_id', 'encounter_date', 'condition', 'ai_risk_score', 'ai_followup_priority_score', 'alert_reason', 'test_result', 'test_type', 'hiv_viral_load_copies_ml', 'min_spo2_pct', 'priority_score']
@@ -388,22 +391,24 @@ with tab_patients:
             
             if 'priority_score' in alerts_display_df.columns:
                 alerts_display_df_sorted = alerts_display_df.sort_values(by='priority_score', ascending=False)
-            else:
-                alerts_display_df_sorted = alerts_display_df 
+            else: alerts_display_df_sorted = alerts_display_df 
 
-            # --- CONVERSION FOR st.dataframe COMPATIBILITY (JSON Serializable) ---
             df_to_display_streamlit_alerts = alerts_display_df_sorted.head(25).copy()
             for col_alert_disp in df_to_display_streamlit_alerts.columns:
-                if df_to_display_streamlit_alerts[col_alert_disp].dtype == 'object' and col_alert_disp != 'encounter_date':
-                    df_to_display_streamlit_alerts[col_alert_disp] = df_to_display_streamlit_alerts[col_alert_disp].astype(str).replace(['nan', 'None', '<NA>'], 'N/A', regex=False)
-                elif df_to_display_streamlit_alerts[col_alert_disp].dtype == 'object' and col_alert_disp == 'encounter_date':
-                     df_to_display_streamlit_alerts[col_alert_disp] = pd.to_datetime(df_to_display_streamlit_alerts[col_alert_disp], errors='coerce')
-                # Ensure encounter_date is tz-naive for DateColumn if it's still tz-aware
-                if col_alert_disp == 'encounter_date' and pd.api.types.is_datetime64tz_dtype(df_to_display_streamlit_alerts[col_alert_disp]):
-                    df_to_display_streamlit_alerts[col_alert_disp] = df_to_display_streamlit_alerts[col_alert_disp].dt.tz_localize(None)
+                if col_alert_disp == 'encounter_date':
+                    df_to_display_streamlit_alerts[col_alert_disp] = pd.to_datetime(df_to_display_streamlit_alerts[col_alert_disp], errors='coerce')
+                    if pd.api.types.is_datetime64tz_dtype(df_to_display_streamlit_alerts[col_alert_disp]): df_to_display_streamlit_alerts[col_alert_disp] = df_to_display_streamlit_alerts[col_alert_disp].dt.tz_localize(None)
+                    continue
+                numeric_display_cols = ['ai_risk_score', 'ai_followup_priority_score', 'priority_score', 'hiv_viral_load_copies_ml', 'min_spo2_pct']
+                if col_alert_disp in numeric_display_cols:
+                    df_to_display_streamlit_alerts[col_alert_disp] = pd.to_numeric(df_to_display_streamlit_alerts[col_alert_disp], errors='coerce')
+                    continue
+                if df_to_display_streamlit_alerts[col_alert_disp].dtype == 'object':
+                    df_to_display_streamlit_alerts[col_alert_disp] = df_to_display_streamlit_alerts[col_alert_disp].fillna('N/A').astype(str).replace(['nan', 'None', '<NA>'], 'N/A', regex=False)
+            for col_final_check in df_to_display_streamlit_alerts.select_dtypes(include=['object']).columns:
+                if col_final_check != 'encounter_date': df_to_display_streamlit_alerts[col_final_check] = df_to_display_streamlit_alerts[col_final_check].astype(str)
 
-
-            st.dataframe(df_to_display_streamlit_alerts, use_container_width=True, column_config={ "encounter_date": st.column_config.DateColumn("Encounter Date", format="YYYY-MM-DD"), "ai_risk_score": st.column_config.ProgressColumn("AI Risk", format="%d", min_value=0, max_value=100), "ai_followup_priority_score": st.column_config.ProgressColumn("AI Prio.", format="%d", min_value=0, max_value=100), "priority_score": st.column_config.NumberColumn("Overall Alert Prio.", format="%d"), "alert_reason": st.column_config.TextColumn("Alert Reason(s)", width="large"), "hiv_viral_load_copies_ml": st.column_config.NumberColumn("HIV VL (cp/mL)", format="%.0f"), "min_spo2_pct": st.column_config.NumberColumn("Min SpO2 (%)", format="%d%%"), }, height=450, hide_index=True )
+            st.dataframe(df_to_display_streamlit_alerts, use_container_width=True, column_config={ "encounter_date": st.column_config.DateColumn("Encounter Date", format="YYYY-MM-DD"), "ai_risk_score": st.column_config.ProgressColumn("AI Risk", format="%d", min_value=0, max_value=100), "ai_followup_priority_score": st.column_config.ProgressColumn("AI Prio.", format="%d", min_value=0,max_value=100), "priority_score": st.column_config.NumberColumn("Overall Alert Prio.", format="%d"), "alert_reason": st.column_config.TextColumn("Alert Reason(s)", width="large"), "hiv_viral_load_copies_ml": st.column_config.NumberColumn("HIV VL (cp/mL)", format="%.0f"), "min_spo2_pct": st.column_config.NumberColumn("Min SpO2 (%)", format="%d%%"), }, height=450, hide_index=True )
         else: st.info("No specific patient cases flagged for clinical review in period.")
     else: st.info("No health data for selected period for Patient Load or alerts.")
 
