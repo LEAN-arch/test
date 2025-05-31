@@ -31,11 +31,11 @@ from utils.ai_analytics_engine import apply_ai_models
 # Requires:
 # test/pages/__init__.py (empty)
 # test/pages/district_components/__init__.py (empty)
-from .district_components import kpi_display_district
-from .district_components import map_display_district
-from .district_components import trends_tab_district
-from .district_components import comparison_tab_district
-from .district_components import intervention_tab_district
+from pages.district_components import kpi_display_district
+from pages.district_components import map_display_district
+from pages.district_components import trends_tab_district
+from pages.district_components import comparison_tab_district
+from pages.district_components import intervention_tab_district
 
 logger = logging.getLogger(__name__)
 # CSS Loading (as before)
