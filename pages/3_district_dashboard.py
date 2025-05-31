@@ -151,29 +151,27 @@ selected_start_date_dist_trends, selected_end_date_dist_trends = st.sidebar.date
 
 filtered_health_for_trends_dist = pd.DataFrame()
 if health_records_district_main is not None and not health_records_district_main.empty:
-    temp_health_dates_trend = pd.to_datetime(health_records_district_main['encounter_date'], errors='coerce')
-    health_records_district_main['encounter_date_obj_trend'] = pd.NaT # Use distinct obj col name
-    valid_health_date_mask_trend = temp_health_dates_trend.notna()
-    health_records_district_main.loc[valid_health_date_mask_trend, 'encounter_date_obj_trend'] = temp_health_dates_trend[valid_health_date_mask_trend].dt.date
-    health_date_filter_mask_trend = (
-        health_records_district_main['encounter_date_obj_trend'].notna() &
-        (health_records_district_main['encounter_date_obj_trend'] >= selected_start_date_dist_trends) &
-        (health_records_district_main['encounter_date_obj_trend'] <= selected_end_date_dist_trends)
-    )
-    filtered_health_for_trends_dist = health_records_district_main[health_date_filter_mask_trend].copy()
+    health_records_district_main['encounter_date'] = pd.to_datetime(health_records_district_main['encounter_date'], errors='coerce') # Ensure datetime
+    health_records_district_main['encounter_date_obj_trend'] = health_records_district_main['encounter_date'].dt.date
+    valid_dates_filter_health_trend = health_records_district_main['encounter_date_obj_trend'].notna()
+    df_health_trend_to_filter = health_records_district_main[valid_dates_filter_health_trend].copy()
+    if not df_health_trend_to_filter.empty:
+        filtered_health_for_trends_dist = df_health_trend_to_filter[
+            (df_health_trend_to_filter['encounter_date_obj_trend'] >= selected_start_date_dist_trends) &
+            (df_health_trend_to_filter['encounter_date_obj_trend'] <= selected_end_date_dist_trends)
+        ].copy()
 
 filtered_iot_for_trends_dist = pd.DataFrame()
 if iot_records_district_main is not None and not iot_records_district_main.empty:
-    temp_iot_dates_trend = pd.to_datetime(iot_records_district_main['timestamp'], errors='coerce')
-    iot_records_district_main['timestamp_date_obj_trend'] = pd.NaT # Use distinct obj col name
-    valid_iot_date_mask_trend = temp_iot_dates_trend.notna()
-    iot_records_district_main.loc[valid_iot_date_mask_trend, 'timestamp_date_obj_trend'] = temp_iot_dates_trend[valid_iot_date_mask_trend].dt.date
-    iot_date_filter_mask_trend = (
-        iot_records_district_main['timestamp_date_obj_trend'].notna() &
-        (iot_records_district_main['timestamp_date_obj_trend'] >= selected_start_date_dist_trends) &
-        (iot_records_district_main['timestamp_date_obj_trend'] <= selected_end_date_dist_trends)
-    )
-    filtered_iot_for_trends_dist = iot_records_district_main[iot_date_filter_mask_trend].copy()
+    iot_records_district_main['timestamp'] = pd.to_datetime(iot_records_district_main['timestamp'], errors='coerce') # Ensure datetime
+    iot_records_district_main['timestamp_date_obj_trend'] = iot_records_district_main['timestamp'].dt.date
+    valid_dates_filter_iot_trend = iot_records_district_main['timestamp_date_obj_trend'].notna()
+    df_iot_trend_to_filter = iot_records_district_main[valid_dates_filter_iot_trend].copy()
+    if not df_iot_trend_to_filter.empty:
+        filtered_iot_for_trends_dist = df_iot_trend_to_filter[
+            (df_iot_trend_to_filter['timestamp_date_obj_trend'] >= selected_start_date_dist_trends) &
+            (df_iot_trend_to_filter['timestamp_date_obj_trend'] <= selected_end_date_dist_trends)
+        ].copy()
 
 # --- KPIs Section ---
 st.subheader("District-Wide Key Performance Indicators (Latest Aggregated Zonal Data)")
@@ -252,9 +250,10 @@ if district_gdf_main_enriched is not None and not district_gdf_main_enriched.emp
         selected_map_metric_config = available_map_metrics_for_select.get(selected_map_metric_display_name)
         if selected_map_metric_config:
             map_val_col = selected_map_metric_config["col"]; map_colorscale = selected_map_metric_config["colorscale"]
-            hover_cols_for_map = ['name', map_val_col, 'population', 'num_clinics', 'facility_coverage_score']
-            final_hover_cols_map = list(dict.fromkeys([col for col in hover_cols_for_map if col in district_gdf_main_enriched.columns and col != map_val_col])) # Don't repeat val_col if also in general list
-            map_figure = plot_layered_choropleth_map(gdf=district_gdf_main_enriched, value_col=map_val_col, title=f"District Map: {selected_map_metric_display_name}", id_col='zone_id', color_continuous_scale=map_colorscale, hover_cols=final_hover_cols_map, height=app_config.MAP_PLOT_HEIGHT, mapbox_style=app_config.MAPBOX_STYLE)
+            hover_cols_for_map = ['name', map_val_col, 'population', 'num_clinics', 'facility_coverage_score'] # Base list
+            final_hover_cols_map = list(dict.fromkeys([col for col in hover_cols_for_map if col in district_gdf_main_enriched.columns and col != map_val_col])) # Add value_col separately to ensure it's there, others if they exist and aren't the main value
+            final_hover_cols_map.insert(0, map_val_col) # Ensure main value is shown
+            map_figure = plot_layered_choropleth_map(gdf=district_gdf_main_enriched, value_col=map_val_col, title=f"District Map: {selected_map_metric_display_name}", id_col='zone_id', color_continuous_scale=map_colorscale, hover_cols=list(dict.fromkeys(final_hover_cols_map)), height=app_config.MAP_PLOT_HEIGHT, mapbox_style=app_config.MAPBOX_STYLE)
             st.plotly_chart(map_figure, use_container_width=True)
     else: st.warning("No metrics available for map visualization. Check data enrichment.")
 else: st.error("🚨 District map cannot be displayed: Enriched zone geographic data is unusable or unavailable.")
@@ -270,19 +269,18 @@ with tab_dist_trends:
         st.markdown(f"Displaying trends from **{selected_start_date_dist_trends.strftime('%d %b %Y')}** to **{selected_end_date_dist_trends.strftime('%d %b %Y')}**.")
         st.subheader("Key Disease Incidence Trends (New Cases Identified per Week)")
         cols_disease_trends_dist = st.columns(2)
-        # ... (Full Trend Tab logic from previous response, ensuring date_col='encounter_date' for health data trends) ...
-        with cols_disease_trends_dist[0]: # TB Trend
+        with cols_disease_trends_dist[0]:
             if not filtered_health_for_trends_dist.empty and all(c in filtered_health_for_trends_dist.columns for c in ['condition', 'patient_id', 'encounter_date']):
                 tb_trends_src = filtered_health_for_trends_dist[filtered_health_for_trends_dist['condition'].str.contains("TB", case=False, na=False)].copy()
                 if not tb_trends_src.empty:
-                    tb_trends_src['is_first_tb_encounter'] = ~tb_trends_src.sort_values('encounter_date').duplicated(subset=['patient_id', 'condition'], keep='first') # Identify first record for patient+TB
+                    tb_trends_src['is_first_tb_encounter'] = ~tb_trends_src.sort_values('encounter_date').duplicated(subset=['patient_id', 'condition'], keep='first')
                     new_tb_cases_df = tb_trends_src[tb_trends_src['is_first_tb_encounter']]
-                    weekly_tb_trend = get_trend_data(new_tb_cases_df, value_col='patient_id', date_col='encounter_date', period='W', agg_func='count') # Count new cases
+                    weekly_tb_trend = get_trend_data(new_tb_cases_df, value_col='patient_id', date_col='encounter_date', period='W', agg_func='count')
                     if not weekly_tb_trend.empty: st.plotly_chart(plot_annotated_line_chart(weekly_tb_trend, "Weekly New TB Patients Identified", y_axis_title="New TB Patients", height=app_config.COMPACT_PLOT_HEIGHT), use_container_width=True)
-                    else: st.caption("No new TB patient trend data for this period.")
-                else: st.caption("No TB encounter data in this period for trends.")
-            else: st.caption("TB trend data cannot be generated (missing data/columns).")
-        with cols_disease_trends_dist[1]: # Malaria Trend
+                    else: st.caption("No new TB patient trend data.")
+                else: st.caption("No TB data for trends.")
+            else: st.caption("TB trend: missing data/columns.")
+        with cols_disease_trends_dist[1]:
             if not filtered_health_for_trends_dist.empty and all(c in filtered_health_for_trends_dist.columns for c in ['condition', 'patient_id', 'encounter_date']):
                 malaria_trends_src = filtered_health_for_trends_dist[filtered_health_for_trends_dist['condition'].str.contains("Malaria", case=False, na=False)].copy()
                 if not malaria_trends_src.empty:
@@ -290,30 +288,28 @@ with tab_dist_trends:
                     new_malaria_cases_df = malaria_trends_src[malaria_trends_src['is_first_malaria_encounter']]
                     weekly_malaria_trend = get_trend_data(new_malaria_cases_df, value_col='patient_id', date_col='encounter_date', period='W', agg_func='count')
                     if not weekly_malaria_trend.empty: st.plotly_chart(plot_annotated_line_chart(weekly_malaria_trend, "Weekly New Malaria Patients Identified", y_axis_title="New Malaria Patients", height=app_config.COMPACT_PLOT_HEIGHT), use_container_width=True)
-                    else: st.caption("No new Malaria patient trend data for this period.")
-                else: st.caption("No Malaria encounter data in this period for trends.")
-            else: st.caption("Malaria trend data unavailable.")
+                    else: st.caption("No new Malaria patient trend data.")
+                else: st.caption("No Malaria data for trends.")
+            else: st.caption("Malaria trend: missing data/columns.")
 
         st.subheader("Population Wellness & Clinic Environmental Trends"); cols_wellness_env_dist = st.columns(2)
         with cols_wellness_env_dist[0]:
             if not filtered_health_for_trends_dist.empty and 'avg_daily_steps' in filtered_health_for_trends_dist.columns:
                 steps_trends_dist = get_trend_data(filtered_health_for_trends_dist, 'avg_daily_steps', date_col='encounter_date', period='W', agg_func='mean')
                 if not steps_trends_dist.empty: st.plotly_chart(plot_annotated_line_chart(steps_trends_dist, "Weekly Avg. Patient Daily Steps (District)", y_axis_title="Average Steps", target_line=app_config.TARGET_DAILY_STEPS, target_label=f"Target {app_config.TARGET_DAILY_STEPS} Steps", height=app_config.COMPACT_PLOT_HEIGHT), use_container_width=True)
-                else: st.caption("No steps trend data for this period.")
-            else: st.caption("Avg. daily steps data missing for trends.")
+                else: st.caption("No steps trend data.")
+            else: st.caption("Avg. daily steps data missing.")
         with cols_wellness_env_dist[1]:
             if not filtered_iot_for_trends_dist.empty and 'avg_co2_ppm' in filtered_iot_for_trends_dist.columns:
                 co2_trends_dist_iot = get_trend_data(filtered_iot_for_trends_dist, 'avg_co2_ppm', date_col='timestamp', period='D', agg_func='mean')
                 if not co2_trends_dist_iot.empty: st.plotly_chart(plot_annotated_line_chart(co2_trends_dist_iot, "Daily Avg. CO2 (All Monitored Clinics)", y_axis_title="CO2 (ppm)", target_line=app_config.CO2_LEVEL_ALERT_PPM, target_label=f"Alert >{app_config.CO2_LEVEL_ALERT_PPM}ppm", height=app_config.COMPACT_PLOT_HEIGHT), use_container_width=True)
-                else: st.caption("No clinic CO2 trend data from IoT for this period.")
-            else: st.caption("Clinic CO2 data missing or no IoT data for this period for trends.")
+                else: st.caption("No clinic CO2 trend data.")
+            else: st.caption("Clinic CO2 data missing or no IoT data.")
 
 with tab_dist_comparison:
     st.header("📊 Zonal Comparative Analysis (Based on Latest Aggregates)")
-    # ... (Full Zonal Comparison Tab logic from previous complete response, no changes needed for date bug) ...
     if district_gdf_main_enriched is not None and not district_gdf_main_enriched.empty and 'geometry' in district_gdf_main_enriched.columns:
         st.markdown("Compare zones using aggregated health, resource, environmental, and socio-economic metrics from the latest available data.")
-        # Reuse map_metric_options_config_dist as it contains relevant cols and formats
         comp_table_metrics_dict_dist = { name: details for name, details in map_metric_options_config_dist.items() if details["col"] in district_gdf_main_enriched.columns and district_gdf_main_enriched[details["col"]].notna().any()}
         if comp_table_metrics_dict_dist:
             st.subheader("Zonal Statistics Table"); cols_for_comp_table_display = ['name'] + [d['col'] for d in comp_table_metrics_dict_dist.values()]
@@ -329,6 +325,7 @@ with tab_dist_comparison:
                     try: styler_obj_comp_dist = styler_obj_comp_dist.background_gradient(subset=[col_name_to_style], cmap=colorscale_name, axis=0)
                     except Exception as e_style: logger.warning(f"Could not apply background_gradient for {col_name_to_style} with cmap {colorscale_name}: {e_style}")
             st.dataframe(styler_obj_comp_dist, use_container_width=True, height=min(len(df_for_comp_table_display) * 45 + 60, 650))
+            
             st.subheader("Visual Comparison Chart"); selected_bar_metric_name_dist_comp_viz = st.selectbox("Select Metric for Bar Chart Comparison:", list(comp_table_metrics_dict_dist.keys()), key="district_comp_barchart_v8")
             selected_bar_details_dist_comp_viz = comp_table_metrics_dict_dist.get(selected_bar_metric_name_dist_comp_viz)
             if selected_bar_details_dist_comp_viz:
@@ -338,10 +335,8 @@ with tab_dist_comparison:
         else: st.info("No metrics available for Zonal Comparison. Check GDF enrichment.")
     else: st.info("Zonal comparison requires enriched geographic zone data.")
 
-
 with tab_dist_interventions:
     st.header("🎯 Intervention Planning Insights")
-    # ... (Full Intervention Planning Tab logic from previous complete response)
     if district_gdf_main_enriched is not None and not district_gdf_main_enriched.empty and 'geometry' in district_gdf_main_enriched.columns:
         st.markdown("Identify zones for targeted interventions based on customizable criteria related to health risks, disease burdens, resource accessibility, and environmental factors from the latest aggregated data.")
         criteria_lambdas_intervention_dist = {
@@ -355,21 +350,17 @@ with tab_dist_interventions:
         for name_crit_int, func_crit_int in criteria_lambdas_intervention_dist.items():
             try:
                 test_apply_df = district_gdf_main_enriched.head(1) if not district_gdf_main_enriched.empty else pd.DataFrame(columns=district_gdf_main_enriched.columns)
-                if test_apply_df.empty and not district_gdf_main_enriched.columns.empty : # If GDF has columns but is empty, create test df with those cols
-                    test_apply_df = pd.DataFrame(columns=district_gdf_main_enriched.columns)
-                elif test_apply_df.empty and district_gdf_main_enriched.columns.empty : # Worst case, create dummy for basic lambda check
-                     test_apply_df = pd.DataFrame(columns=['avg_risk_score','facility_coverage_score','prevalence_per_1000','active_tb_cases','zone_avg_co2'])
-
-                func_crit_int(test_apply_df) # Test applicability
+                if test_apply_df.empty and not district_gdf_main_enriched.columns.empty : test_apply_df = pd.DataFrame(columns=district_gdf_main_enriched.columns)
+                elif test_apply_df.empty and district_gdf_main_enriched.columns.empty : test_apply_df = pd.DataFrame(columns=['avg_risk_score','facility_coverage_score','prevalence_per_1000','active_tb_cases','zone_avg_co2'])
+                func_crit_int(test_apply_df)
                 available_criteria_for_intervention_dist[name_crit_int] = func_crit_int
             except Exception as e_crit_test: logger.debug(f"Intervention criterion '{name_crit_int}' not available: {e_crit_test}")
         
-        if not available_criteria_for_intervention_dist:
-            st.warning("No intervention criteria can be applied. Relevant data columns may be missing from the enriched zone data.")
+        if not available_criteria_for_intervention_dist: st.warning("No intervention criteria can be applied. Relevant data columns may be missing.")
         else:
             default_selection_interv = list(available_criteria_for_intervention_dist.keys())[0:min(2, len(available_criteria_for_intervention_dist))]
             selected_criteria_names_interv = st.multiselect( "Select Criteria to Identify Priority Zones (Zones meeting ANY selected criteria will be shown):", options=list(available_criteria_for_intervention_dist.keys()), default=default_selection_interv, key="district_intervention_criteria_multiselect_v5")
-            if not selected_criteria_names_interv: st.info("Please select at least one criterion above to identify priority zones.")
+            if not selected_criteria_names_interv: st.info("Please select at least one criterion.")
             else:
                 final_intervention_mask_dist = pd.Series([False] * len(district_gdf_main_enriched), index=district_gdf_main_enriched.index)
                 for crit_name_selected_interv in selected_criteria_names_interv:
@@ -377,8 +368,8 @@ with tab_dist_interventions:
                     try:
                         current_crit_mask_interv = crit_func_selected_interv(district_gdf_main_enriched)
                         if isinstance(current_crit_mask_interv, pd.Series) and current_crit_mask_interv.dtype == 'bool': final_intervention_mask_dist = final_intervention_mask_dist | current_crit_mask_interv.fillna(False)
-                        else: logger.warning(f"Intervention criterion '{crit_name_selected_interv}' did not produce a valid boolean Series. Type: {type(current_crit_mask_interv)}")
-                    except Exception as e_crit_apply_interv: logger.error(f"Error applying intervention criterion '{crit_name_selected_interv}': {e_crit_apply_interv}", exc_info=True); st.warning(f"Could not apply criterion: {crit_name_selected_interv}. Error: {str(e_crit_apply_interv)[:100]}...")
+                        else: logger.warning(f"Intervention criterion '{crit_name_selected_interv}' non-boolean result. Type: {type(current_crit_mask_interv)}")
+                    except Exception as e_crit_apply_interv: logger.error(f"Error applying criterion '{crit_name_selected_interv}': {e_crit_apply_interv}", exc_info=True); st.warning(f"Could not apply: {crit_name_selected_interv}. Error: {str(e_crit_apply_interv)[:100]}...")
                 priority_zones_df_for_interv = district_gdf_main_enriched[final_intervention_mask_dist].copy()
                 if not priority_zones_df_for_interv.empty:
                     st.markdown(f"###### Identified **{len(priority_zones_df_for_interv)}** Zone(s) Meeting Selected Intervention Criteria:")
@@ -390,15 +381,6 @@ with tab_dist_interventions:
                     if 'facility_coverage_score' in actual_cols_interv_table_display: sort_by_list_interv_display.append('facility_coverage_score'); sort_asc_list_interv_display.append(True)
                     interv_df_display_sorted_final = priority_zones_df_for_interv.sort_values(by=sort_by_list_interv_display, ascending=sort_asc_list_interv_display) if sort_by_list_interv_display else priority_zones_df_for_interv
                     st.dataframe(interv_df_display_sorted_final[actual_cols_interv_table_display], use_container_width=True, hide_index=True, height=min(400, len(interv_df_display_sorted_final)*38 + 58),
-                        column_config={
-                            "name": st.column_config.TextColumn("Zone Name"), "population": st.column_config.NumberColumn("Population", format="%,.0f"),
-                            "avg_risk_score": st.column_config.ProgressColumn("Avg. AI Risk Score", format="%.1f", min_value=0, max_value=100),
-                            "total_active_key_infections": st.column_config.NumberColumn("Total Key Infections", format="%.0f"),
-                            "prevalence_per_1000": st.column_config.NumberColumn("Prevalence (/1k Pop.)", format="%.1f"),
-                            "facility_coverage_score": st.column_config.NumberColumn("Facility Coverage (%)", format="%.1f%%"),
-                            "zone_avg_co2": st.column_config.NumberColumn("Avg. Clinic CO2 (ppm)", format="%.0f ppm"),
-                            "active_tb_cases": st.column_config.NumberColumn("TB Cases", format="%.0f"),
-                            "active_malaria_cases": st.column_config.NumberColumn("Malaria Cases", format="%.0f"),
-                        })
-                else: st.success("✅ No zones currently meet the selected high-priority criteria based on the available aggregated data.")
-    else: st.info("Intervention planning insights require successfully loaded and enriched geographic zone data.")
+                        column_config={ "name": st.column_config.TextColumn("Zone Name"), "population": st.column_config.NumberColumn("Population", format="%,.0f"), "avg_risk_score": st.column_config.ProgressColumn("Avg. AI Risk", format="%.1f", min_value=0, max_value=100), "total_active_key_infections": st.column_config.NumberColumn("Key Inf.", format="%.0f"), "prevalence_per_1000": st.column_config.NumberColumn("Prevalence/1k", format="%.1f"), "facility_coverage_score": st.column_config.NumberColumn("Facility Cov. (%)", format="%.1f%%"), "zone_avg_co2": st.column_config.NumberColumn("Avg Clinic CO2", format="%.0f ppm"), "active_tb_cases": st.column_config.NumberColumn("TB Cases", format="%.0f"), "active_malaria_cases": st.column_config.NumberColumn("Malaria Cases", format="%.0f"), })
+                else: st.success("✅ No zones currently meet the selected high-priority criteria.")
+    else: st.info("Intervention planning insights require enriched geographic zone data.")
