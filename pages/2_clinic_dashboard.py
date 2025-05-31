@@ -31,13 +31,15 @@ from utils.ai_analytics_engine import (
 # Requires:
 # test/pages/__init__.py (empty)
 # test/pages/clinic_components/__init__.py (empty)
-from .clinic_components import kpi_display
-from .clinic_components import environmental_kpis
-from .clinic_components import epi_module
-from .clinic_components import testing_insights_tab
-from .clinic_components import supply_chain_tab
-from .clinic_components import patient_focus_tab
-from .clinic_components import environment_details_tab
+# ... other imports ...
+from pages.clinic_components import kpi_display
+from pages.clinic_components import environmental_kpis
+from pages.clinic_components import epi_module
+from pages.clinic_components import testing_insights_tab
+from pages.clinic_components import supply_chain_tab
+from pages.clinic_components import patient_focus_tab
+from pages.clinic_components import environment_details_tab
+# ...
 
 logger = logging.getLogger(__name__)
 
