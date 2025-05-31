@@ -17,32 +17,26 @@ def hash_geodataframe(gdf): # pragma: no cover
         return None 
     try:
         gdf_sorted = gdf.sort_index().reindex(sorted(gdf.columns), axis=1)
-        # Ensure geometry column name is correctly identified even if it's not 'geometry'
         geom_col_name = gdf_sorted.geometry.name
         data_hash_part = gdf_sorted.drop(columns=[geom_col_name], errors='ignore').to_parquet()
-        
         geometry_hash_part = b""
         if geom_col_name in gdf_sorted.columns and not gdf_sorted[geom_col_name].empty:
             valid_geoms = gdf_sorted[geom_col_name][gdf_sorted[geom_col_name].is_valid & ~gdf_sorted[geom_col_name].is_empty]
             if not valid_geoms.empty:
                 geometry_hash_part = valid_geoms.to_wkb().values.tobytes()
-        
         crs_hash_part = gdf_sorted.crs.to_wkt() if gdf_sorted.crs else None
         return (data_hash_part, geometry_hash_part, crs_hash_part)
     except Exception as e:
         logger.error(f"Error hashing GeoDataFrame (falling back to basic hash of head): {e}", exc_info=True)
-        return (
-            str(gdf.drop(columns=[gdf.geometry.name], errors='ignore').head(3).to_dict()),
-            str(gdf.geometry.to_wkt().head(3).to_dict()),
-            str(gdf.crs.to_wkt() if gdf.crs else None)
-        )
+        return (str(gdf.drop(columns=[gdf.geometry.name], errors='ignore').head(3).to_dict()), str(gdf.geometry.to_wkt().head(3).to_dict()), str(gdf.crs.to_wkt() if gdf.crs else None))
 
 # --- Data Loading Functions ---
 @st.cache_data(ttl=app_config.CACHE_TTL_SECONDS)
 def load_health_records():
     file_path = app_config.HEALTH_RECORDS_CSV
     logger.info(f"Attempting to load health records from: {file_path}")
-    default_empty_health_df_cols = ["date", "zone_id", "patient_id", "condition", "ai_risk_score", 'item', 'stock_on_hand', 'consumption_rate_per_day', 'test_type', 'test_result', 'test_turnaround_days']
+    # Updated default_empty_health_df_cols to include new sample rejection columns
+    default_empty_health_df_cols = ["date", "zone_id", "patient_id", "condition", "ai_risk_score", 'item', 'stock_on_hand', 'consumption_rate_per_day', 'test_type', 'test_result', 'test_turnaround_days', 'sample_status', 'rejection_reason']
     default_empty_health_df = pd.DataFrame(columns=default_empty_health_df_cols)
     try:
         if not os.path.exists(file_path):
@@ -55,42 +49,43 @@ def load_health_records():
             logger.warning(f"Health records file '{file_path}' is empty.")
             return default_empty_health_df
 
-
         date_cols_to_parse = ['date', 'referral_date', 'test_date']
         for col in date_cols_to_parse:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
             else:
-                logger.warning(f"Date column '{col}' not found in health_records.csv. It will be missing or handled as NaT if created later.")
+                logger.warning(f"Date column '{col}' not found in health_records.csv.")
         
         if 'date' not in df.columns or df['date'].isnull().all():
             logger.error("Critical 'date' column is missing or all values are invalid in health_records.csv.")
             st.error("Health records are missing a valid 'date' column. Processing cannot continue reliably.")
             return default_empty_health_df
 
-
         required_cols = ["zone_id", "patient_id", "condition", "ai_risk_score"] 
         missing_req = [col for col in required_cols if col not in df.columns or df[col].isnull().all()] 
         if missing_req:
-            logger.error(f"Missing or entirely null critical required columns in health records: {missing_req}. Cannot robustly proceed.")
-            st.error(f"Health records are missing critical data in columns: {missing_req}. Please check the CSV file structure and content.")
+            logger.error(f"Missing or entirely null critical required columns in health records: {missing_req}.")
+            st.error(f"Health records are missing critical data in columns: {missing_req}.")
             return default_empty_health_df
 
         numeric_cols_expected = ['test_turnaround_days', 'quantity_dispensed', 'stock_on_hand', 'consumption_rate_per_day', 'ai_risk_score', 'avg_daily_steps', 'avg_spo2', 'min_spo2_pct', 'max_skin_temp_celsius', 'fall_detected_today', 'age', 'chw_visit', 'tb_contact_traced', 'resting_heart_rate', 'avg_hrv', 'avg_sleep_duration_hrs', 'sleep_score_pct', 'stress_level_score', 'hiv_viral_load']
-        string_cols_expected = ['patient_id', 'condition', 'test_type', 'test_result', 'item', 'zone_id', 'clinic_id', 'physician_id', 'notes', 'hpv_status', 'referral_status', 'gender']
+        string_cols_expected = ['patient_id', 'condition', 'test_type', 'test_result', 'item', 'zone_id', 'clinic_id', 'physician_id', 'notes', 'hpv_status', 'referral_status', 'gender', 'sample_status', 'rejection_reason'] # Added new sample cols
 
         for col in numeric_cols_expected:
             if col not in df.columns: df[col] = np.nan
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        common_null_strs = ['', 'nan', 'None', 'NONE', 'Null', 'NULL', '<NA>', 'N/A'] 
+        common_null_strs = ['', 'nan', 'None', 'NONE', 'Null', 'NULL', '<NA>', 'N/A', ' '] # Added single space
         for col in string_cols_expected:
             if col not in df.columns: df[col] = 'Unknown'
             df[col] = df[col].astype(str).fillna('Unknown')
-            df.loc[df[col].isin(common_null_strs) | df[col].str.isspace(), col] = 'Unknown'
-
+            # Replace common null/empty representations and whitespace-only with 'Unknown'
+            df[col] = df[col].str.strip() # Remove leading/trailing whitespace first
+            df.loc[df[col].isin(common_null_strs), col] = 'Unknown'
+        
         df['condition'] = df['condition'].replace('Healthy Checkup', 'Wellness Visit')
-        df['test_result'] = df['test_result'].str.strip().replace({'Positive ': 'Positive', ' Negative': 'Negative'})
+        # Clean test_result further, map N/A specifically, handle potential case issues if needed
+        df['test_result'] = df['test_result'].str.strip().replace({'Positive ': 'Positive', ' Negative': 'Negative', 'N/A':'Unknown', 'nan':'Unknown'})
         
         df.dropna(subset=['patient_id', 'zone_id', 'date'], inplace=True)
         df = df[~df['patient_id'].isin(['Unknown'])]
@@ -102,6 +97,10 @@ def load_health_records():
 
         logger.info(f"Successfully loaded and preprocessed health records from {file_path} ({len(df)} rows).")
         return df
+    except pd.errors.ParserError as pe:
+        logger.error(f"Parsing error loading health records from {file_path}: {pe}", exc_info=True)
+        st.error(f"Error parsing health records CSV. Please check file format, especially around line numbers indicated in logs. Error: {pe}")
+        return default_empty_health_df
     except pd.errors.EmptyDataError: 
         logger.error(f"Health records file is empty: {file_path}")
         st.error(f"Health records file '{os.path.basename(file_path)}' is empty.")
@@ -118,219 +117,108 @@ def load_zone_data():
     logger.info(f"Loading zone attributes from: {attributes_path}")
     logger.info(f"Loading zone geometries from: {geometries_path}")
 
-    if not os.path.exists(attributes_path):
-        logger.error(f"Zone attributes file not found: {attributes_path}")
-        st.error(f"Zone attributes file ('{os.path.basename(attributes_path)}') not found.")
-        return None
-    if not os.path.exists(geometries_path):
-        logger.error(f"Zone geometries file not found: {geometries_path}")
-        st.error(f"Zone geometries file ('{os.path.basename(geometries_path)}') not found.")
-        return None
+    if not os.path.exists(attributes_path): logger.error(f"Zone attributes file not found: {attributes_path}"); st.error(f"Zone attributes file ('{os.path.basename(attributes_path)}') not found."); return None 
+    if not os.path.exists(geometries_path): logger.error(f"Zone geometries file not found: {geometries_path}"); st.error(f"Zone geometries file ('{os.path.basename(geometries_path)}') not found."); return None
 
     try:
-        zone_attributes_df = pd.read_csv(attributes_path)
-        if zone_attributes_df.empty:
-            logger.error(f"Zone attributes file '{os.path.basename(attributes_path)}' is empty.")
-            st.error(f"Zone attributes file '{os.path.basename(attributes_path)}' is empty.")
-            return None
-
+        zone_attributes_df = pd.read_csv(attributes_path); 
+        if zone_attributes_df.empty: logger.error(f"Zone attributes file '{os.path.basename(attributes_path)}' empty."); st.error(f"Zone attributes file '{os.path.basename(attributes_path)}' empty."); return None
         required_attr_cols = ["zone_id", "zone_display_name", "population", "socio_economic_index", "num_clinics", "avg_travel_time_clinic_min"]
-        missing_attrs = [col for col in required_attr_cols if col not in zone_attributes_df.columns]
-        if missing_attrs:
-            logger.error(f"Zone attributes CSV is missing required columns: {missing_attrs}.")
-            st.error(f"Zone attributes CSV is missing required columns: {missing_attrs}. Please check the file.")
-            return None
-
-        zone_geometries_gdf = gpd.read_file(geometries_path)
-        if zone_geometries_gdf.empty:
-            logger.error(f"Zone geometries GeoJSON file '{os.path.basename(geometries_path)}' is empty or has no features.")
-            st.error(f"Zone geometries file '{os.path.basename(geometries_path)}' is empty or invalid.")
-            return None
-            
-        if "zone_id" not in zone_geometries_gdf.columns:
-            logger.error("Zone geometries GeoJSON is missing the 'zone_id' property in its features.")
-            st.error("Zone geometries GeoJSON is missing the 'zone_id' property. Cannot merge with attributes.")
-            return None
-
-        if zone_geometries_gdf.crs is None:
-             logger.warning(f"Zone geometries GeoJSON has no CRS defined. Assuming {app_config.DEFAULT_CRS}.")
-             zone_geometries_gdf = zone_geometries_gdf.set_crs(app_config.DEFAULT_CRS, allow_override=True)
-        elif zone_geometries_gdf.crs.to_string().upper() != app_config.DEFAULT_CRS.upper(): 
-             logger.info(f"Reprojecting zone geometries from {zone_geometries_gdf.crs.to_string()} to {app_config.DEFAULT_CRS}.")
-             zone_geometries_gdf = zone_geometries_gdf.to_crs(app_config.DEFAULT_CRS)
-
-        zone_attributes_df['zone_id'] = zone_attributes_df['zone_id'].astype(str)
-        zone_geometries_gdf['zone_id'] = zone_geometries_gdf['zone_id'].astype(str)
-        
-        merged_gdf = zone_geometries_gdf.merge(zone_attributes_df, on="zone_id", how="left", suffixes=('_geom_prop', '_attr_val'))
-        logger.debug(f"Columns in merged_gdf after initial merge: {merged_gdf.columns.tolist()}")
-
-        if 'zone_display_name' in merged_gdf.columns:
-            merged_gdf.rename(columns={'zone_display_name': 'name'}, inplace=True)
-            logger.info("Renamed 'zone_display_name' from attributes to 'name' in merged GeoDataFrame.")
-        elif 'name_geom_prop' in merged_gdf.columns and 'name' not in merged_gdf.columns : # if GeoJSON had a name prop and attributes didn't
-            merged_gdf.rename(columns={'name_geom_prop': 'name'}, inplace=True)
-            logger.info("Used 'name_geom_prop' from GeoJSON properties as 'name' in merged GeoDataFrame.")
-        elif 'name' not in merged_gdf.columns: 
-             logger.warning("Neither 'zone_display_name' (from CSV) nor 'name' (from GeoJSON) found. Creating 'name' from 'zone_id'.")
-             merged_gdf['name'] = "Zone_" + merged_gdf['zone_id'].astype(str)
-
-        if 'name' in merged_gdf.columns and merged_gdf['name'].isnull().any():
-            unmatched_zones_final = merged_gdf[merged_gdf['name'].isnull()]['zone_id'].unique().tolist()
-            logger.warning(f"Some zones still have null names after merge and rename: {unmatched_zones_final}. Using zone_id as fallback name for these.")
-            merged_gdf.loc[merged_gdf['name'].isnull(), 'name'] = "Zone_" + merged_gdf.loc[merged_gdf['name'].isnull(), 'zone_id'].astype(str)
-        
-        merged_gdf.drop(columns=[col for col in ['name_geom_prop', 'name_attr_val'] if col in merged_gdf.columns], errors='ignore', inplace=True)
-        logger.debug(f"Columns in merged_gdf after name handling: {merged_gdf.columns.tolist()}")
-
-        numeric_attr_cols_final = ["population", "socio_economic_index", "num_clinics", "avg_travel_time_clinic_min"]
-        for col_base_final in numeric_attr_cols_final:
-            suffixed_col = f"{col_base_final}_attr_val" # Suffix from attributes merge
-            if suffixed_col in merged_gdf.columns:
-                 merged_gdf[col_base_final] = merged_gdf[suffixed_col]
-                 merged_gdf.drop(columns=[suffixed_col], inplace=True, errors='ignore')
-
-            if col_base_final in merged_gdf.columns:
-                merged_gdf[col_base_final] = pd.to_numeric(merged_gdf[col_base_final], errors='coerce').fillna(0) 
-            else: 
-                logger.warning(f"Numeric attribute column '{col_base_final}' missing in final merged_gdf. Initializing to 0.")
-                merged_gdf[col_base_final] = 0.0
-            # Clean up any other potential suffixed versions if they somehow appeared
-            merged_gdf.drop(columns=[f"{col_base_final}_geom_prop"], errors='ignore', inplace=True)
-
-
-        logger.info(f"Successfully loaded and merged zone data, resulting in {len(merged_gdf)} zone features.")
-        return merged_gdf
-
-    except Exception as e: 
-        logger.error(f"Error loading or merging zone data: {type(e).__name__} - {e}", exc_info=True) # More specific logging
-        st.error(f"An error occurred while loading zone data: {type(e).__name__} - {e}")
-        return None
+        missing_attrs = [col for col in required_attr_cols if col not in zone_attributes_df.columns]; 
+        if missing_attrs: logger.error(f"Zone_attr CSV missing: {missing_attrs}."); st.error(f"Zone_attr CSV missing: {missing_attrs}."); return None
+        zone_geometries_gdf = gpd.read_file(geometries_path); 
+        if zone_geometries_gdf.empty: logger.error(f"Zone_geom file '{os.path.basename(geometries_path)}' empty/no features."); st.error(f"Zone_geom file '{os.path.basename(geometries_path)}' empty/invalid."); return None
+        if "zone_id" not in zone_geometries_gdf.columns: logger.error("Zone_geom missing 'zone_id' property."); st.error("Zone_geom missing 'zone_id'."); return None
+        if zone_geometries_gdf.crs is None: logger.warning(f"Zone_geom no CRS. Assuming {app_config.DEFAULT_CRS}."); zone_geometries_gdf = zone_geometries_gdf.set_crs(app_config.DEFAULT_CRS, allow_override=True)
+        elif zone_geometries_gdf.crs.to_string().upper() != app_config.DEFAULT_CRS.upper(): logger.info(f"Reprojecting Zone_geom from {zone_geometries_gdf.crs.to_string()} to {app_config.DEFAULT_CRS}."); zone_geometries_gdf = zone_geometries_gdf.to_crs(app_config.DEFAULT_CRS)
+        zone_attributes_df['zone_id'] = zone_attributes_df['zone_id'].astype(str); zone_geometries_gdf['zone_id'] = zone_geometries_gdf['zone_id'].astype(str)
+        merged_gdf = zone_geometries_gdf.merge(zone_attributes_df, on="zone_id", how="left", suffixes=('_geom', '_attr')); logger.debug(f"Cols in merged_gdf after initial merge: {merged_gdf.columns.tolist()}")
+        if 'zone_display_name' in merged_gdf.columns: merged_gdf.rename(columns={'zone_display_name': 'name'}, inplace=True); logger.info("Renamed 'zone_display_name' to 'name'.")
+        elif 'name_geom' in merged_gdf.columns and 'name' not in merged_gdf.columns : merged_gdf.rename(columns={'name_geom': 'name'}, inplace=True); logger.info("Used 'name_geom' as 'name'.")
+        elif 'name' not in merged_gdf.columns: logger.warning("No 'name' or 'zone_display_name'. Creating 'name' from 'zone_id'."); merged_gdf['name'] = "Zone_" + merged_gdf['zone_id'].astype(str)
+        if 'name' in merged_gdf.columns and merged_gdf['name'].isnull().any(): unmatched_zones = merged_gdf[merged_gdf['name'].isnull()]['zone_id'].unique().tolist(); logger.warning(f"Zones with null names: {unmatched_zones}. Using zone_id fallback."); merged_gdf.loc[merged_gdf['name'].isnull(), 'name'] = "Zone_" + merged_gdf.loc[merged_gdf['name'].isnull(), 'zone_id'].astype(str)
+        merged_gdf.drop(columns=[c for c in ['name_geom', 'name_attr'] if c in merged_gdf.columns], errors='ignore', inplace=True); logger.debug(f"Cols in merged_gdf after name handling: {merged_gdf.columns.tolist()}")
+        numeric_attr_cols = ["population", "socio_economic_index", "num_clinics", "avg_travel_time_clinic_min"]
+        for col_b in num_attr_cols:
+            suf_attr = f"{col_b}_attr"; suf_geom = f"{col_b}_geom"
+            if suf_attr in merged_gdf.columns: merged_gdf[col_b] = merged_gdf[suf_attr]
+            elif suf_geom in merged_gdf.columns and col_b not in merged_gdf.columns: merged_gdf[col_b] = merged_gdf[suf_geom]
+            if col_b in merged_gdf.columns: merged_gdf[col_b] = pd.to_numeric(merged_gdf[col_b], errors='coerce').fillna(0) 
+            else: logger.warning(f"Num attr col '{col_b}' missing. Init 0."); merged_gdf[col_b] = 0.0
+            merged_gdf.drop(columns=[suf_attr, suf_geom], errors='ignore', inplace=True)
+        logger.info(f"Loaded/merged zone data ({len(merged_gdf)} features)."); return merged_gdf
+    except Exception as e: logger.error(f"Err loading/merging zone data: {type(e).__name__} - {e}", exc_info=True); st.error(f"Err loading zone data: {e}"); return None
 
 @st.cache_data(ttl=app_config.CACHE_TTL_SECONDS)
 def load_iot_clinic_environment_data():
-    file_path = app_config.IOT_CLINIC_ENVIRONMENT_CSV
-    logger.info(f"Attempting to load IoT clinic environment data from: {file_path}")
-    default_empty_iot_df_cols = ['timestamp', 'clinic_id', 'room_name', 'zone_id', 'avg_co2_ppm', 'avg_pm25', 'waiting_room_occupancy', 'sanitizer_dispenses_per_hour']
-    default_empty_iot_df = pd.DataFrame(columns=default_empty_iot_df_cols)
+    file_path = app_config.IOT_CLINIC_ENVIRONMENT_CSV; logger.info(f"Loading IoT data from: {file_path}")
+    def_empty_cols = ['timestamp', 'clinic_id', 'room_name', 'zone_id', 'avg_co2_ppm', 'avg_pm25', 'waiting_room_occupancy', 'sanitizer_dispenses_per_hour']; def_empty_df = pd.DataFrame(columns=def_empty_cols)
     try:
-        if not os.path.exists(file_path):
-            logger.warning(f"IoT data file '{os.path.basename(file_path)}' not found. Clinic environmental metrics will be unavailable.")
-            return default_empty_iot_df
-        df = pd.read_csv(file_path)
-        if df.empty:
-             logger.warning(f"IoT data file '{os.path.basename(file_path)}' is empty.")
-             return default_empty_iot_df
-        if 'timestamp' not in df.columns:
-            logger.error("IoT data missing 'timestamp' column. This data is largely unusable without timestamps.")
-            st.error("IoT data is missing the critical 'timestamp' column.")
-            return default_empty_iot_df 
-        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-        df.dropna(subset=['timestamp'], inplace=True); 
-        if df.empty : return default_empty_iot_df 
-        required_iot_cols = ['clinic_id', 'room_name', 'avg_co2_ppm'] 
-        missing_iot_cols = [col for col in required_iot_cols if col not in df.columns]
-        if missing_iot_cols: logger.warning(f"IoT data missing some expected columns: {missing_iot_cols}. Environmental metrics may be incomplete.")
+        if not os.path.exists(file_path): logger.warning(f"IoT file not found: {file_path}. Env metrics unavailable."); return def_empty_df
+        df = pd.read_csv(file_path); 
+        if df.empty: logger.warning(f"IoT file empty: {file_path}."); return def_empty_df
+        if 'timestamp' not in df.columns: logger.error("IoT missing 'timestamp'. Unusable."); st.error("IoT missing 'timestamp'."); return def_empty_df 
+        df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce'); df.dropna(subset=['timestamp'], inplace=True); 
+        if df.empty : return def_empty_df 
+        req_iot_cols = ['clinic_id', 'room_name', 'avg_co2_ppm']; missing_iot = [c for c in req_iot_cols if c not in df.columns]; 
+        if missing_iot: logger.warning(f"IoT missing: {missing_iot}. Metrics may be incomplete.")
         if 'zone_id' not in df.columns or df['zone_id'].isnull().all():
-            if 'clinic_id' in df.columns:
-                clinic_to_zone_map_example = { 'C01': 'ZoneA', 'C02': 'ZoneB', 'C03': 'ZoneC', 'C04': 'ZoneD', 'C05':'ZoneE', 'C06':'ZoneF' }
-                df['zone_id'] = df['clinic_id'].astype(str).map(clinic_to_zone_map_example).fillna('UnknownZoneByClinic')
-            else: df['zone_id'] = 'UnknownZoneDirect'
+            if 'clinic_id' in df.columns: df['zone_id'] = df['clinic_id'].astype(str).map({ 'C01': 'ZoneA', 'C02': 'ZoneB', 'C03': 'ZoneC', 'C04': 'ZoneD', 'C05':'ZoneE', 'C06':'ZoneF' }).fillna('UnknownZoneByClinic'); logger.info("Derived 'zone_id' for IoT from 'clinic_id'.")
+            else: logger.warning("IoT missing 'zone_id' & 'clinic_id'. Defaulting 'zone_id'."); df['zone_id'] = 'UnknownZoneDirect'
         df['zone_id'] = df['zone_id'].astype(str).fillna('UnknownZoneFill')
-        numeric_iot_cols = ['avg_co2_ppm', 'max_co2_ppm', 'avg_pm25', 'voc_index', 'avg_temp_celsius', 'avg_humidity_rh', 'avg_noise_db', 'waiting_room_occupancy', 'patient_throughput_per_hour', 'sanitizer_dispenses_per_hour']
-        for col in numeric_iot_cols:
+        num_iot_cols = ['avg_co2_ppm', 'max_co2_ppm', 'avg_pm25', 'voc_index', 'avg_temp_celsius', 'avg_humidity_rh', 'avg_noise_db', 'waiting_room_occupancy', 'patient_throughput_per_hour', 'sanitizer_dispenses_per_hour']
+        for col in num_iot_cols:
             if col not in df.columns: df[col] = np.nan
             df[col] = pd.to_numeric(df[col], errors='coerce')
-        string_iot_cols = ['clinic_id', 'room_name']
-        for col in string_iot_cols:
-            if col in df.columns:
-                 df[col] = df[col].astype(str).fillna('Unknown')
-                 df.loc[df[col].isin(['', 'nan', 'None']), col] = 'Unknown'
+        str_iot_cols = ['clinic_id', 'room_name']; 
+        for col in str_iot_cols:
+            if col in df.columns: df[col] = df[col].astype(str).fillna('Unknown'); df.loc[df[col].isin(['', 'nan', 'None']), col] = 'Unknown'
             else: df[col] = 'Unknown'
-        logger.info(f"Successfully loaded and preprocessed IoT clinic environment data ({len(df)} rows).")
-        return df
-    except pd.errors.EmptyDataError: logger.warning(f"IoT data file '{os.path.basename(file_path)}' is empty."); return default_empty_iot_df
-    except Exception as e: logger.error(f"Error loading IoT clinic environment data: {e}", exc_info=True); st.error(f"An error occurred while loading IoT clinic environment data: {e}"); return default_empty_iot_df
-
-# health_hub/utils/core_data_processing.py
-# ... (previous code like hash_geodataframe, load_health_records, load_zone_data, load_iot_clinic_environment_data) ...
+        logger.info(f"Loaded IoT data ({len(df)} rows)."); return df
+    except pd.errors.EmptyDataError: logger.warning(f"IoT file empty: {file_path}."); return def_empty_df
+    except Exception as e: logger.error(f"Err loading IoT data: {e}", exc_info=True); st.error(f"Err loading IoT data: {e}"); return def_empty_df
 
 @st.cache_data(ttl=app_config.CACHE_TTL_SECONDS, hash_funcs={ gpd.GeoDataFrame: hash_geodataframe, pd.DataFrame: lambda df: df.to_parquet() if not df.empty and isinstance(df, pd.DataFrame) else None })
 def enrich_zone_geodata_with_health_aggregates(zone_gdf_base, health_df_input, iot_df_input=None):
-    # ... (initial setup and default empty GDF remains the same) ...
     default_enriched_cols = ['zone_id', 'name', 'geometry', 'population', 'avg_risk_score', 'active_tb_cases', 'active_malaria_cases', 'hiv_positive_cases', 'pneumonia_cases', 'anemia_cases', 'sti_cases', 'total_active_key_infections', 'prevalence_per_1000', 'facility_coverage_score', 'chw_visits_in_zone', 'avg_daily_steps_zone', 'avg_spo2_zone', 'zone_avg_co2', 'num_clinics', 'socio_economic_index']
     empty_enriched_gdf = gpd.GeoDataFrame(columns=default_enriched_cols, crs=app_config.DEFAULT_CRS)
-    if zone_gdf_base is None or zone_gdf_base.empty:
-        logger.warning("Zone GeoDataFrame (zone_gdf_base) is empty or None for enrichment. Returning an empty GeoDataFrame with default schema.")
-        return empty_enriched_gdf
-
-    enriched_gdf = zone_gdf_base.copy()
-    if 'zone_id' not in enriched_gdf.columns:
-        logger.error("CRITICAL: 'zone_id' missing in input zone_gdf_base for enrichment. Cannot proceed with meaningful enrichment.")
-        return enriched_gdf 
+    if zone_gdf_base is None or zone_gdf_base.empty: return empty_enriched_gdf
+    enriched_gdf = zone_gdf_base.copy(); 
+    if 'zone_id' not in enriched_gdf.columns: logger.error("CRIT: 'zone_id' missing in zone_gdf_base for enrichment."); return enriched_gdf 
     enriched_gdf['zone_id'] = enriched_gdf['zone_id'].astype(str)
-
     health_agg_cols_defaults = {'avg_risk_score': np.nan, 'active_tb_cases': 0, 'active_malaria_cases': 0, 'hiv_positive_cases': 0, 'pneumonia_cases': 0, 'anemia_cases': 0, 'sti_cases': 0, 'chw_visits_in_zone': 0, 'avg_daily_steps_zone': np.nan, 'avg_spo2_zone': np.nan, 'avg_skin_temp_zone': np.nan, 'total_falls_detected_zone': 0, 'hpv_screenings_done': 0}
     for col, default_val in health_agg_cols_defaults.items(): enriched_gdf[col] = default_val 
-
     if health_df_input is not None and not health_df_input.empty and 'zone_id' in health_df_input.columns:
-        health_df = health_df_input.copy()
-        health_df['zone_id'] = health_df['zone_id'].astype(str)
-
-        # --- MODIFIED AGGREGATION LOGIC ---
-        # Helper functions now expect the full group DataFrame
-        def agg_count_unique_patients_condition(group_df, conditions_list):
-            if 'condition' not in group_df.columns or 'patient_id' not in group_df.columns: return 0
-            return group_df[group_df['condition'].isin(conditions_list)]['patient_id'].nunique()
-
-        def agg_count_sti_cases(group_df): # Specific for STIs
-            if 'condition' not in group_df.columns or 'patient_id' not in group_df.columns: return 0
-            # Assuming condition column is string and na already handled
-            return group_df[group_df['condition'].str.startswith('STI-', na=False)]['patient_id'].nunique()
-        
-        def agg_hpv_screenings(group_df):
-            if 'test_type' not in group_df.columns : return 0
-            return (group_df['test_type'] == 'PapSmear').sum()
-
-        # When using custom aggregation functions that need access to multiple columns of the group,
-        # it's often cleaner to use .apply() on the grouped object, or to aggregate per column if possible.
-        # For this scenario with multiple custom aggregations based on different columns:
-        
+        health_df = health_df_input.copy(); health_df['zone_id'] = health_df['zone_id'].astype(str)
         zone_health_summary_list = []
-        if 'zone_id' in health_df: # Ensure zone_id exists before groupby
-            for zone, group_df in health_df.groupby('zone_id'):
-                summary = {'zone_id': zone}
-                summary['avg_risk_score'] = group_df['ai_risk_score'].mean() if 'ai_risk_score' in group_df else np.nan
-                summary['active_tb_cases'] = agg_count_unique_patients_condition(group_df, ['TB'])
-                summary['active_malaria_cases'] = agg_count_unique_patients_condition(group_df, ['Malaria'])
-                summary['hiv_positive_cases'] = agg_count_unique_patients_condition(group_df, ['HIV-Positive'])
-                summary['pneumonia_cases'] = agg_count_unique_patients_condition(group_df, ['Pneumonia'])
-                summary['anemia_cases'] = agg_count_unique_patients_condition(group_df, ['Anemia'])
-                summary['sti_cases'] = agg_count_sti_cases(group_df)
+        if 'zone_id' in health_df and health_df['zone_id'].notna().any():
+            for zone_val, group_df in health_df.groupby('zone_id'):
+                summary = {'zone_id': zone_val}
+                summary['avg_risk_score'] = group_df.get('ai_risk_score', pd.Series(dtype=float)).mean()
+                if 'condition' not in group_df.columns: group_df['condition'] = pd.Series(dtype=str) # Ensure 'condition' exists for .isin/.str
+                else: group_df['condition'] = group_df['condition'].astype(str) 
+                
+                summary['active_tb_cases'] = group_df[group_df['condition'].isin(['TB'])]['patient_id'].nunique()
+                summary['active_malaria_cases'] = group_df[group_df['condition'].isin(['Malaria'])]['patient_id'].nunique()
+                summary['hiv_positive_cases'] = group_df[group_df['condition'].isin(['HIV-Positive'])]['patient_id'].nunique()
+                summary['pneumonia_cases'] = group_df[group_df['condition'].isin(['Pneumonia'])]['patient_id'].nunique()
+                summary['anemia_cases'] = group_df[group_df['condition'].isin(['Anemia'])]['patient_id'].nunique()
+                summary['sti_cases'] = group_df[group_df['condition'].str.startswith('STI-', na=False)]['patient_id'].nunique()
                 summary['chw_visits_in_zone'] = pd.to_numeric(group_df.get('chw_visit'), errors='coerce').sum()
                 summary['avg_daily_steps_zone'] = group_df.get('avg_daily_steps', pd.Series(dtype=float)).mean()
                 summary['avg_spo2_zone'] = group_df.get('avg_spo2', pd.Series(dtype=float)).mean()
-                summary['avg_skin_temp_zone'] = group_df.get('max_skin_temp_celsius', pd.Series(dtype=float)).mean()
+                summary['avg_skin_temp_zone'] = group_df.get('max_skin_temp_celsius', pd.Series(dtype=float)).mean() 
                 summary['total_falls_detected_zone'] = pd.to_numeric(group_df.get('fall_detected_today'), errors='coerce').sum()
-                summary['hpv_screenings_done'] = agg_hpv_screenings(group_df)
+                summary['hpv_screenings_done'] = (group_df.get('test_type', pd.Series(dtype=str)) == 'PapSmear').sum()
                 zone_health_summary_list.append(summary)
-            
-            if zone_health_summary_list:
-                zone_health_summary = pd.DataFrame(zone_health_summary_list)
-            else: # Handle case where groupby yielded no groups (e.g. health_df was empty after all)
-                zone_health_summary = pd.DataFrame(columns=['zone_id'] + list(health_agg_cols_defaults.keys()))
-        else: # health_df does not have zone_id (should have been caught by earlier checks)
-            zone_health_summary = pd.DataFrame(columns=['zone_id'] + list(health_agg_cols_defaults.keys()))
-
-        # --- END OF MODIFIED AGGREGATION LOGIC ---
-        
+            if zone_health_summary_list: zone_health_summary = pd.DataFrame(zone_health_summary_list)
+            else: zone_health_summary = pd.DataFrame(columns=['zone_id'] + list(health_agg_cols_defaults.keys()))
+        else: zone_health_summary = pd.DataFrame(columns=['zone_id'] + list(health_agg_cols_defaults.keys()))
         for col_to_merge in zone_health_summary.columns:
             if col_to_merge != 'zone_id': enriched_gdf = enriched_gdf.drop(columns=[col_to_merge], errors='ignore') 
         enriched_gdf = enriched_gdf.merge(zone_health_summary, on='zone_id', how='left')
         for col, default_val in health_agg_cols_defaults.items():
             if col in enriched_gdf.columns: enriched_gdf[col] = enriched_gdf[col].fillna(default_val)
-
-    # ... (IoT aggregation and composite metrics like prevalence, facility_coverage_score remain the same) ...
     iot_agg_cols_defaults = {'zone_avg_co2': np.nan, 'zone_max_co2': np.nan, 'zone_avg_temp': np.nan, 'zone_avg_pm25':np.nan, 'zone_avg_occupancy': np.nan}
     for col, default_val in iot_agg_cols_defaults.items(): enriched_gdf[col] = default_val
     if iot_df_input is not None and not iot_df_input.empty and 'zone_id' in iot_df_input.columns:
@@ -342,7 +230,6 @@ def enrich_zone_geodata_with_health_aggregates(zone_gdf_base, health_df_input, i
         enriched_gdf = enriched_gdf.merge(iot_zone_summary, on='zone_id', how='left')
         for col, default_val in iot_agg_cols_defaults.items():
             if col in enriched_gdf.columns: enriched_gdf[col] = enriched_gdf[col].fillna(default_val)
-
     key_infection_cols_list = ['active_tb_cases', 'active_malaria_cases', 'hiv_positive_cases', 'pneumonia_cases', 'sti_cases']
     for col in key_infection_cols_list:
         if col not in enriched_gdf.columns: enriched_gdf[col] = 0
@@ -371,11 +258,6 @@ def enrich_zone_geodata_with_health_aggregates(zone_gdf_base, health_df_input, i
     logger.info(f"Zone geodata successfully enriched. Resulting GDF shape: {enriched_gdf.shape}, Columns: {enriched_gdf.columns.tolist()}")
     return enriched_gdf
 
-
-# ... (Rest of the KPI functions: get_overall_kpis, get_chw_summary, etc. remain the same as the last complete version of this file I provided) ...
-# --- THE REST OF THE FILE FROM YOUR LAST KNOWN GOOD VERSION OF THIS FILE SHOULD BE HERE ---
-# --- It seems I truncated it in the response where this fix was made. I'll add it back now. ---
-
 @st.cache_data(hash_funcs={pd.DataFrame: lambda df: df.to_parquet() if not df.empty and isinstance(df, pd.DataFrame) else None})
 def get_overall_kpis(df_health_records, date_filter_end=None):
     default_kpis_overall = {"total_patients": 0, "avg_patient_risk": 0.0, "active_tb_cases_current": 0, "malaria_rdt_positive_rate_period": 0.0, "hiv_newly_diagnosed_period": 0, "pending_critical_referrals_current": 0, "avg_test_turnaround_period": 0.0, "critical_supply_shortages_current":0, "anemia_prevalence_women_period": 0.0}
@@ -393,7 +275,7 @@ def get_overall_kpis(df_health_records, date_filter_end=None):
     active_tb_cases_current = latest_patient_records[(latest_patient_records.get('condition', pd.Series(dtype=str)) == 'TB') & (latest_patient_records.get('referral_status', 'Unknown') != 'Completed')]['patient_id'].nunique()
     pending_critical_referrals_current = latest_patient_records[(latest_patient_records.get('referral_status', 'Unknown') == 'Pending') & (latest_patient_records.get('condition', pd.Series(dtype=str)).isin(app_config.KEY_CONDITIONS_FOR_TRENDS))]['patient_id'].nunique()
     latest_item_stock_levels = df_upto_snapshot.sort_values('date').drop_duplicates(subset=['item'], keep='last').copy() 
-    latest_item_stock_levels['days_of_supply'] = latest_item_stock_levels.apply(lambda r: (r['stock_on_hand'] / r['consumption_rate_per_day']) if pd.notna(r.get('consumption_rate_per_day')) and r.get('consumption_rate_per_day', 0) > 0 and pd.notna(r.get('stock_on_hand')) else np.nan, axis=1)
+    latest_item_stock_levels['days_of_supply'] = latest_item_stock_levels.apply(lambda r: (r.get('stock_on_hand',0) / r.get('consumption_rate_per_day',0)) if pd.notna(r.get('consumption_rate_per_day')) and r.get('consumption_rate_per_day', 0) > 0 and pd.notna(r.get('stock_on_hand')) else np.nan, axis=1) 
     critical_supply_shortages_current = latest_item_stock_levels[(latest_item_stock_levels['days_of_supply'].notna()) & (latest_item_stock_levels['days_of_supply'] <= app_config.CRITICAL_SUPPLY_DAYS) & (latest_item_stock_levels.get('item', pd.Series(dtype=str)).str.contains('|'.join(app_config.KEY_DRUG_SUBSTRINGS_SUPPLY), case=False, na=False))]['item'].nunique()
     period_start_date = current_data_snapshot_date - pd.Timedelta(days=app_config.DEFAULT_DATE_RANGE_DAYS_TREND -1); df_period = df_upto_snapshot[df_upto_snapshot['date'] >= period_start_date].copy()
     malaria_rdt_positive_rate_period = 0.0; hiv_newly_diagnosed_period = 0; avg_test_turnaround_period = 0.0; anemia_prevalence_women_period = 0.0
@@ -402,7 +284,7 @@ def get_overall_kpis(df_health_records, date_filter_end=None):
         if malaria_conclusive_period > 0: malaria_rdt_positive_rate_period = (malaria_pos_period / malaria_conclusive_period) * 100
         hiv_newly_diagnosed_period = df_period[(df_period.get('condition', pd.Series(dtype=str)) == 'HIV-Positive') & (df_period.get('test_result', pd.Series(dtype=str)) == 'Positive') & (df_period.get('test_type', pd.Series(dtype=str)).str.contains("HIV", case=False, na=False))]['patient_id'].nunique()
         completed_tests_period = df_period[df_period.get('test_turnaround_days', pd.Series(dtype=float)).notna() & (~df_period.get('test_result', pd.Series(dtype=str)).isin(['Pending', 'N/A', 'Unknown']))]; avg_test_turnaround_period = completed_tests_period.get('test_turnaround_days', pd.Series(dtype=float)).mean()
-        women_tested_anemia = df_period[(df_period.get('gender','Unknown') == 'Female') & (df_period.get('age', 0).between(15,49)) & (df_period.get('test_type', pd.Series(dtype=str)) == 'Hemoglobin Test') & (~df_period.get('test_result', pd.Series(dtype=str)).isin(['Pending', 'N/A', 'Unknown']))]; anemia_low_hb = women_tested_anemia[women_tested_anemia.get('test_result', pd.Series(dtype=str)) == 'Low'].shape[0]
+        women_tested_anemia = df_period[(df_period.get('gender','Unknown') == 'Female') & (pd.to_numeric(df_period.get('age',0), errors='coerce').fillna(0).between(15,49)) & (df_period.get('test_type', pd.Series(dtype=str)) == 'Hemoglobin Test') & (~df_period.get('test_result', pd.Series(dtype=str)).isin(['Pending', 'N/A', 'Unknown']))]; anemia_low_hb = women_tested_anemia[women_tested_anemia.get('test_result', pd.Series(dtype=str)) == 'Low'].shape[0]
         if not women_tested_anemia.empty: anemia_prevalence_women_period = (anemia_low_hb / women_tested_anemia.shape[0]) * 100
     return {"total_patients": total_patients, "avg_patient_risk": avg_patient_risk if pd.notna(avg_patient_risk) else 0.0, "active_tb_cases_current": active_tb_cases_current, "malaria_rdt_positive_rate_period": malaria_rdt_positive_rate_period, "hiv_newly_diagnosed_period": hiv_newly_diagnosed_period, "pending_critical_referrals_current": pending_critical_referrals_current, "avg_test_turnaround_period": avg_test_turnaround_period if pd.notna(avg_test_turnaround_period) else 0.0, "critical_supply_shortages_current": critical_supply_shortages_current, "anemia_prevalence_women_period": anemia_prevalence_women_period}
 
@@ -461,23 +343,118 @@ def get_patient_alerts_for_chw(df_chw_day_view, risk_threshold_moderate=None):
 
 @st.cache_data(hash_funcs={pd.DataFrame: lambda df: df.to_parquet() if not df.empty and isinstance(df, pd.DataFrame) else None})
 def get_clinic_summary(df_clinic_period_view): 
-    default_summary = {"tb_sputum_positivity": 0.0, "malaria_positivity": 0.0, "sti_critical_tests_pending": 0, "hiv_tests_conclusive_period": 0, "key_drug_stockouts": 0, "avg_test_turnaround_all_tests":0.0, "hpv_screening_coverage_proxy":0.0, "avg_patient_risk_clinic":0.0 }
-    if df_clinic_period_view is None or df_clinic_period_view.empty: return default_summary
-    df = df_clinic_period_view.copy(); str_cols = ['test_type', 'test_result', 'item', 'condition', 'patient_id']; num_cols = ['stock_on_hand', 'consumption_rate_per_day', 'test_turnaround_days', 'ai_risk_score']
-    for col in str_cols: df[col] = df.get(col, pd.Series(dtype='str')).astype(str).fillna('Unknown').replace(['', 'nan', 'None'], 'Unknown')
+    default_summary = {
+        "tb_sputum_positivity": 0.0, "malaria_positivity": 0.0, 
+        "sti_critical_tests_pending": 0, "hiv_tests_conclusive_period": 0, 
+        "key_drug_stockouts": 0, "avg_test_turnaround_all_tests":0.0, 
+        "hpv_screening_coverage_proxy":0.0, "avg_patient_risk_clinic":0.0,
+        "test_summary_details": {}, "sample_rejection_rate":0.0,
+        "overall_perc_met_tat": 0.0, "total_pending_critical_tests": 0
+    }
+    if df_clinic_period_view is None or df_clinic_period_view.empty: 
+        logger.debug("get_clinic_summary received empty/None DataFrame. Returning default summary.")
+        return default_summary
+        
+    df = df_clinic_period_view.copy(); 
+    str_cols = ['test_type', 'test_result', 'item', 'condition', 'patient_id', 'sample_status'] # Added sample_status
+    num_cols = ['stock_on_hand', 'consumption_rate_per_day', 'test_turnaround_days', 'ai_risk_score']
+    for col in str_cols: df[col] = df.get(col, pd.Series(dtype='str')).astype(str).fillna('Unknown').replace(['', 'nan', 'None', 'N/A'], 'Unknown') # Ensure N/A also becomes Unknown for consistency
     for col in num_cols: df[col] = pd.to_numeric(df.get(col), errors='coerce')
-    tb_tests = df[df.get('test_type',pd.Series(dtype=str)).str.contains("Sputum|GeneXpert", case=False, na=False)]; tb_positive = tb_tests[tb_tests.get('test_result',pd.Series(dtype=str)) == 'Positive']['patient_id'].nunique(); tb_total_conclusive = tb_tests[~tb_tests.get('test_result',pd.Series(dtype=str)).isin(['Pending', 'N/A', 'Unknown'])]['patient_id'].nunique(); tb_sputum_positivity = (tb_positive / tb_total_conclusive) * 100 if tb_total_conclusive > 0 else 0.0
-    malaria_tests = df[df.get('test_type',pd.Series(dtype=str)).str.contains("RDT-Malaria|Microscopy-Malaria", case=False, na=False)]; malaria_positive = malaria_tests[malaria_tests.get('test_result',pd.Series(dtype=str)) == 'Positive']['patient_id'].nunique(); malaria_total_conclusive = malaria_tests[~malaria_tests.get('test_result',pd.Series(dtype=str)).isin(['Pending', 'N/A', 'Unknown'])]['patient_id'].nunique(); malaria_positivity = (malaria_positive / malaria_total_conclusive) * 100 if malaria_total_conclusive > 0 else 0.0
-    sti_critical_tests_pending = df[(df.get('test_type',pd.Series(dtype=str)).isin(app_config.CRITICAL_TESTS_PENDING)) & (df.get('condition',pd.Series(dtype=str)).str.startswith("STI-", na=False)) & (df.get('test_result',pd.Series(dtype=str)) == 'Pending')]['patient_id'].nunique() 
-    hiv_tests_conclusive_period = df[df.get('test_type',pd.Series(dtype=str)).str.contains("HIV", case=False, na=False) & (~df.get('test_result',pd.Series(dtype=str)).isin(['Pending','N/A','Unknown']))]['patient_id'].nunique() 
-    df['days_of_supply'] = df.apply(lambda row: (row['stock_on_hand'] / row['consumption_rate_per_day']) if pd.notna(row.get('stock_on_hand')) and pd.notna(row.get('consumption_rate_per_day')) and row.get('consumption_rate_per_day',0) > 0 else np.nan, axis=1)
+
+    test_summary_details = {} # To store detailed stats per test group
+    
+    # Use KEY_TEST_TYPES_FOR_ANALYSIS from app_config for dynamic processing
+    for group_key, group_config in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items():
+        test_types_in_group = group_config.get("types", [group_key]) # If "types" not specified, assume group_key is the test_type
+        if isinstance(test_types_in_group, str): test_types_in_group = [test_types_in_group] # Ensure it's a list
+            
+        current_tests_df = df[df.get('test_type', pd.Series(dtype=str)).isin(test_types_in_group)]
+        group_name_display = group_config.get("display_name", group_key.replace("_", " "))
+
+        group_stats = {"total_done_in_period": 0, "conclusive_count": 0, "positive_count": 0, "positive_rate": 0.0, "pending_count": 0, "avg_tat_days": 0.0, "perc_met_tat_target": 0.0, "rejected_count": 0}
+        
+        if not current_tests_df.empty:
+            # Use unique patient_id for counts where it makes sense (positivity, conclusive)
+            positive_patients = current_tests_df[current_tests_df['test_result'] == 'Positive']['patient_id'].nunique()
+            
+            conclusive_mask = ~current_tests_df['test_result'].isin(['Pending', 'Unknown', 'Rejected Sample'])
+            conclusive_tests_df = current_tests_df[conclusive_mask]
+            conclusive_patients_count = conclusive_tests_df['patient_id'].nunique()
+            
+            pending_patients = current_tests_df[current_tests_df['test_result'] == 'Pending']['patient_id'].nunique()
+            rejected_count = current_tests_df[current_tests_df['test_result'] == 'Rejected Sample'].shape[0] # Count of rejected samples for this test type
+
+            tat_valid_tests_df = conclusive_tests_df[conclusive_tests_df['test_turnaround_days'].notna()]
+            avg_tat_for_group = tat_valid_tests_df['test_turnaround_days'].mean()
+            
+            target_tat = group_config.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS) # Use specific or global TAT
+            met_target_tests_count = tat_valid_tests_df[tat_valid_tests_df['test_turnaround_days'] <= target_tat].shape[0]
+            
+            group_stats["total_done_in_period"] = current_tests_df.shape[0] # All tests of this type recorded
+            group_stats["conclusive_count"]= conclusive_patients_count 
+            group_stats["positive_count"] = positive_patients
+            group_stats["positive_rate"]= (positive_patients / conclusive_patients_count) * 100 if conclusive_patients_count > 0 else 0.0
+            group_stats["pending_count"]= pending_patients
+            group_stats["avg_tat_days"]= avg_tat_for_group if pd.notna(avg_tat_for_group) else 0.0
+            group_stats["perc_met_tat_target"]= (met_target_tests_count / tat_valid_tests_df.shape[0]) * 100 if not tat_valid_tests_df.empty else 0.0
+            group_stats["rejected_count"] = rejected_count
+        
+        test_summary_details[group_name_display] = group_stats # Use display name as key
+    
+    # --- Overall KPIs derived from detailed stats or calculated broadly ---
+    tb_sputum_positivity = test_summary_details.get("TB Sputum/GeneXpert", {}).get("positive_rate", 0.0) # Match a potential display name
+    if not tb_sputum_positivity and "TB_Tests" in test_summary_details: tb_sputum_positivity = test_summary_details["TB_Tests"].get("positive_rate", 0.0)
+
+    malaria_positivity = test_summary_details.get("Malaria RDT/Microscopy", {}).get("positive_rate", 0.0)
+    if not malaria_positivity and "Malaria_Tests" in test_summary_details: malaria_positivity = test_summary_details["Malaria_Tests"].get("positive_rate", 0.0)
+
+    hiv_tests_conclusive_period = test_summary_details.get("HIV Rapid/VL", {}).get("conclusive_count",0)
+    if not hiv_tests_conclusive_period and "HIV_Tests" in test_summary_details: hiv_tests_conclusive_period = test_summary_details["HIV_Tests"].get("conclusive_count",0)
+
+    sti_critical_tests_pending = sum(test_summary_details.get(test_group, {}).get("pending_count", 0) 
+                                    for test_group, cfg in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() 
+                                    if cfg.get("disease_group") == "STI" and cfg.get("critical"))
+
+
+    df['days_of_supply'] = df.apply(lambda r: (r.get('stock_on_hand',0)/r.get('consumption_rate_per_day',0)) if pd.notna(r.get('stock_on_hand')) and pd.notna(r.get('consumption_rate_per_day')) and r.get('consumption_rate_per_day',0)>0 else np.nan, axis=1)
     latest_stock_in_period = df.sort_values('date').drop_duplicates(subset=['item'], keep='last')
-    key_drug_stockouts = latest_stock_in_period[(latest_stock_in_period['days_of_supply'].notna()) & (latest_stock_in_period['days_of_supply'] <= app_config.CRITICAL_SUPPLY_DAYS) & (latest_stock_in_period.get('item',pd.Series(dtype=str)).str.contains('|'.join(app_config.KEY_DRUG_SUBSTRINGS_SUPPLY), case=False, na=False))]['item'].nunique()
-    conclusive_tests_with_tat_period = df[(~df.get('test_result',pd.Series(dtype=str)).isin(['Pending', 'N/A', 'Unknown'])) & (df.get('test_turnaround_days',pd.Series(dtype=float)).notna())]
-    avg_test_turnaround_all_tests = conclusive_tests_with_tat_period.get('test_turnaround_days',pd.Series(dtype=float)).mean()
-    hpv_screenings_done = df[df.get('test_type',pd.Series(dtype=str)) == 'PapSmear']['patient_id'].nunique(); total_unique_patients_in_period = df['patient_id'].nunique(); hpv_screening_coverage_proxy = (hpv_screenings_done / total_unique_patients_in_period) * 100 if total_unique_patients_in_period > 0 else 0.0
+    key_drug_stockouts = latest_stock_in_period[(latest_stock_in_period['days_of_supply'].notna()) & (latest_stock_in_period['days_of_supply'] <= app_config.CRITICAL_SUPPLY_DAYS) & (latest_stock_in_period.get('item', pd.Series(dtype=str)).str.contains('|'.join(app_config.KEY_DRUG_SUBSTRINGS_SUPPLY), case=False, na=False))]['item'].nunique()
+    
+    all_conclusive_w_tat_overall = df[(~df.get('test_result',pd.Series(dtype=str)).isin(['Pending', 'Unknown', 'Rejected Sample'])) & (df.get('test_turnaround_days',pd.Series(dtype=float)).notna())]
+    avg_test_turnaround_all_tests = all_conclusive_w_tat_overall.get('test_turnaround_days',pd.Series(dtype=float)).mean()
+    all_critical_tests_with_tat = all_conclusive_w_tat_overall[all_conclusive_w_tat_overall['test_type'].isin(app_config.CRITICAL_TESTS_LIST)]
+    
+    overall_met_target_count = 0
+    if not all_critical_tests_with_tat.empty:
+        for test_type in all_critical_tests_with_tat['test_type'].unique():
+            target_for_type = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(test_type, {}).get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
+            overall_met_target_count += all_critical_tests_with_tat[
+                (all_critical_tests_with_tat['test_type'] == test_type) &
+                (all_critical_tests_with_tat['test_turnaround_days'] <= target_for_type)
+            ].shape[0]
+    overall_perc_met_tat = (overall_met_target_count / all_critical_tests_with_tat.shape[0]) * 100 if not all_critical_tests_with_tat.empty else 0.0
+
+    
+    hpv_screenings_done = test_summary_details.get("PapSmear",{}).get("total_done_in_period", 0) # Or however PapSmear group is named
+    total_unique_patients = df['patient_id'].nunique(); 
+    hpv_screening_coverage_proxy = (hpv_screenings_done / total_unique_patients) * 100 if total_unique_patients > 0 else 0.0
     avg_patient_risk_clinic = df.drop_duplicates(subset=['patient_id']).get('ai_risk_score',pd.Series(dtype=float)).mean()
-    return {"tb_sputum_positivity": tb_sputum_positivity, "malaria_positivity": malaria_positivity, "sti_critical_tests_pending": sti_critical_tests_pending, "hiv_tests_conclusive_period": hiv_tests_conclusive_period, "key_drug_stockouts": key_drug_stockouts, "avg_test_turnaround_all_tests": avg_test_turnaround_all_tests if pd.notna(avg_test_turnaround_all_tests) else 0.0, "hpv_screening_coverage_proxy": hpv_screening_coverage_proxy, "avg_patient_risk_clinic": avg_patient_risk_clinic if pd.notna(avg_patient_risk_clinic) else 0.0}
+
+    total_tests_with_status = df[df['sample_status'] != 'Unknown'].shape[0] # Denominator for rejection rate
+    total_rejected_samples = df[df['sample_status'] == 'Rejected'].shape[0]
+    sample_rejection_rate = (total_rejected_samples / total_tests_with_status) * 100 if total_tests_with_status > 0 else 0.0
+
+    return {"tb_sputum_positivity": tb_sputum_positivity, "malaria_positivity": malaria_positivity, 
+            "sti_critical_tests_pending": sti_critical_tests_pending, "hiv_tests_conclusive_period": hiv_tests_conclusive_period, 
+            "key_drug_stockouts": key_drug_stockouts, 
+            "avg_test_turnaround_all_tests": avg_test_turnaround_all if pd.notna(avg_test_turnaround_all) else 0.0, 
+            "hpv_screening_coverage_proxy": hpv_screening_coverage_proxy, 
+            "avg_patient_risk_clinic": avg_patient_risk_clinic if pd.notna(avg_patient_risk_clinic) else 0.0,
+            "test_summary_details": test_summary_details, 
+            "sample_rejection_rate": sample_rejection_rate,
+            "overall_perc_met_tat": overall_perc_met_tat,
+            "total_pending_critical_tests": sum(details.get("pending_count", 0) for test, details in test_summary_details.items() if test in app_config.CRITICAL_TESTS_LIST or any(t in test for t in app_config.CRITICAL_TESTS_LIST) ) # Approximate
+           }
 
 @st.cache_data(hash_funcs={pd.DataFrame: lambda df: df.to_parquet() if not df.empty and isinstance(df, pd.DataFrame) else None})
 def get_clinic_environmental_summary(df_iot_clinic_period_view): 
@@ -511,10 +488,10 @@ def get_patient_alerts_for_clinic(df_clinic_period_view, risk_threshold_moderate
     risk_mod_clinic = risk_threshold_moderate if risk_threshold_moderate is not None else app_config.RISK_THRESHOLDS['moderate']; risk_high_clinic = app_config.RISK_THRESHOLDS['high']
     current_snapshot_date_clinic = df['date'].max().normalize(); recent_positive_lookback_days = 7; overdue_test_lookback_days = 10 
     latest_records_in_period = df.sort_values('date').drop_duplicates(subset=['patient_id', 'condition'], keep='last').copy()
-    s_false_latest = pd.Series([False]*len(latest_records_in_period), index=latest_records_in_period.index) # s_false matching index of latest_records_in_period
+    s_false_latest = pd.Series([False]*len(latest_records_in_period), index=latest_records_in_period.index) 
     latest_records_in_period.loc[:, 'cond_clinic_high_risk'] = latest_records_in_period.get('ai_risk_score', s_false_latest.copy()) >= risk_high_clinic
     latest_records_in_period.loc[:, 'cond_clinic_recent_critical_positive'] = ((latest_records_in_period.get('test_result', s_false_latest.copy()) == 'Positive') & (latest_records_in_period.get('condition', s_false_latest.copy()).isin(app_config.KEY_CONDITIONS_FOR_TRENDS)) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)) >= (current_snapshot_date_clinic - pd.Timedelta(days=recent_positive_lookback_days))))
-    latest_records_in_period.loc[:, 'cond_clinic_overdue_critical_test'] = ((latest_records_in_period.get('test_result', s_false_latest.copy()) == 'Pending') & (latest_records_in_period.get('test_type', s_false_latest.copy()).isin(app_config.CRITICAL_TESTS_PENDING)) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)) < (current_snapshot_date_clinic - pd.Timedelta(days=overdue_test_lookback_days))))
+    latest_records_in_period.loc[:, 'cond_clinic_overdue_critical_test'] = ((latest_records_in_period.get('test_result', s_false_latest.copy()) == 'Pending') & (latest_records_in_period.get('test_type', s_false_latest.copy()).isin(app_config.CRITICAL_TESTS_LIST)) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)) < (current_snapshot_date_clinic - pd.Timedelta(days=overdue_test_lookback_days)))) # Used CRITICAL_TESTS_LIST
     latest_records_in_period.loc[:, 'cond_clinic_hiv_high_vl'] = ((latest_records_in_period.get('condition', s_false_latest.copy()) == 'HIV-Positive') & (latest_records_in_period.get('hiv_viral_load', pd.Series(dtype=float, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('hiv_viral_load', pd.Series(dtype=float, index=latest_records_in_period.index)) > 1000) ) 
     alert_mask_clinic = (latest_records_in_period.get('cond_clinic_high_risk', s_false_latest.copy()) | latest_records_in_period.get('cond_clinic_recent_critical_positive', s_false_latest.copy()) | latest_records_in_period.get('cond_clinic_overdue_critical_test', s_false_latest.copy()) | latest_records_in_period.get('cond_clinic_hiv_high_vl', s_false_latest.copy())) 
     alerts_df_clinic = latest_records_in_period[alert_mask_clinic].copy()
