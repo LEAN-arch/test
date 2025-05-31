@@ -1,14 +1,15 @@
 # test/pages/clinic_components/kpi_display.py
 import streamlit as st
+import pandas as pd # <<< ADDED IMPORT
+import numpy as np # For np.nan
 from config import app_config
 from utils.ui_visualization_helpers import render_kpi_card
-import numpy as np # For np.nan if default value is NaN
 
 def render_main_clinic_kpis(clinic_service_kpis, date_range_display_str):
     st.subheader(f"Overall Clinic Performance Summary {date_range_display_str}")
     kpi_cols_main_clinic = st.columns(4)
     with kpi_cols_main_clinic[0]:
-        overall_tat_val = clinic_service_kpis.get('overall_avg_test_turnaround', np.nan) # Default to NaN for averages
+        overall_tat_val = clinic_service_kpis.get('overall_avg_test_turnaround', np.nan)
         render_kpi_card("Overall Avg. TAT", f"{overall_tat_val:.1f}d" if pd.notna(overall_tat_val) else "N/A", "⏱️",
                         status="High" if pd.notna(overall_tat_val) and overall_tat_val > (app_config.TARGET_TEST_TURNAROUND_DAYS + 1) else ("Moderate" if pd.notna(overall_tat_val) and overall_tat_val > app_config.TARGET_TEST_TURNAROUND_DAYS else ("Low" if pd.notna(overall_tat_val) else "Neutral")),
                         help_text=f"Average TAT for all conclusive tests. Target: ≤{app_config.TARGET_TEST_TURNAROUND_DAYS} days.")
@@ -37,20 +38,21 @@ def render_disease_specific_kpis(clinic_service_kpis):
         
     kpi_cols_disease_pos = st.columns(4)
 
-    tb_gx_key = next((k for k, v in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if "genexpert" in v.get("display_name", "").lower()), "Sputum-GeneXpert")
-    tb_gx_display_name = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(tb_gx_key, {}).get("display_name", "TB GeneXpert")
+    # Helper to find display name, using key from config first
+    def get_test_display_name(config_key, default_display_name):
+        return app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(config_key, {}).get("display_name", default_display_name)
+
+    tb_gx_display_name = get_test_display_name("Sputum-GeneXpert", "TB GeneXpert")
     with kpi_cols_disease_pos[0]:
         tb_pos_rate = test_details_for_kpis.get(tb_gx_display_name, {}).get("positive_rate", 0.0)
         render_kpi_card(f"{tb_gx_display_name} Pos.", f"{tb_pos_rate:.1f}%", "🫁", status="High" if tb_pos_rate > 10 else ("Moderate" if tb_pos_rate > 5 else "Low"))
 
-    mal_rdt_key = next((k for k, v in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if "rdt-malaria" in k.lower()), "RDT-Malaria")
-    mal_rdt_display_name = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(mal_rdt_key, {}).get("display_name", "Malaria RDT")
+    mal_rdt_display_name = get_test_display_name("RDT-Malaria", "Malaria RDT")
     with kpi_cols_disease_pos[1]:
         mal_pos_rate = test_details_for_kpis.get(mal_rdt_display_name, {}).get("positive_rate", 0.0)
         render_kpi_card(f"{mal_rdt_display_name} Pos.", f"{mal_pos_rate:.1f}%", "🦟", status="High" if mal_pos_rate > app_config.TARGET_MALARIA_POSITIVITY_RATE else "Low")
 
-    hiv_rapid_key = next((k for k, v in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if "hiv-rapid" in k.lower()), "HIV-Rapid")
-    hiv_rapid_display_name = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(hiv_rapid_key, {}).get("display_name", "HIV Rapid Test")
+    hiv_rapid_display_name = get_test_display_name("HIV-Rapid", "HIV Rapid Test")
     with kpi_cols_disease_pos[2]:
         hiv_pos_rate = test_details_for_kpis.get(hiv_rapid_display_name, {}).get("positive_rate", 0.0)
         render_kpi_card(f"{hiv_rapid_display_name} Pos.", f"{hiv_pos_rate:.1f}%", "🩸", status="Moderate" if hiv_pos_rate > 2 else "Low")
