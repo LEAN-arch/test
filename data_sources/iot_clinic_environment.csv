@@ -1,0 +1,21 @@
+timestamp,clinic_id,room_name,avg_co2_ppm,max_co2_ppm,avg_pm25,voc_index,avg_temp_celsius,avg_humidity_rh,avg_noise_db,waiting_room_occupancy,patient_throughput_per_hour,sanitizer_dispenses_per_hour,zone_id
+2025-03-05T09:00:00Z,C01,Waiting Room A,680,730,11.5,125,23.5,52,51,6,7,3,ZoneA
+2025-03-05T10:00:00Z,C02,Consultation 1,520,590,7.8,95,22.5,48,44,2,9,2,ZoneB
+2025-03-10T14:00:00Z,C03,TB Clinic Waiting,1020,1200,24.1,200,23.0,59,57,14,4,2,ZoneC
+2025-03-15T11:00:00Z,C04,General Waiting Area,720,800,13.0,130,24.0,55,50,5,6,4,ZoneD
+2025-03-20T08:30:00Z,C05,Waiting Room E,750,820,12.0,132,23.8,53,50,4,8,3,ZoneE
+2025-03-25T16:00:00Z,C06,Screening Tent F,880,1000,17.5,165,25.5,60,58,10,3,5,ZoneF
+2025-04-01T09:15:00Z,C01,Waiting Room A,700,760,12.0,128,24.2,54,52,7,8,4,ZoneA
+2025-04-08T13:30:00Z,C02,Waiting Room B,830,950,16.0,155,24.8,58,55,9,6,3,ZoneB
+2025-04-15T10:00:00Z,C03,Consultation TB1,590,670,9.5,108,23.1,51,47,1,9,2,ZoneC
+2025-04-20T15:00:00Z,C04,General Waiting Area,760,850,14.2,142,24.5,56,51,6,7,4,ZoneD
+2025-04-25T11:30:00Z,C05,Consultation E1,550,620,8.5,92,23.0,49,45,2,11,3,ZoneE
+2025-04-30T09:00:00Z,C06,Screening Tent F,920,1100,19.0,175,25.8,61,59,12,3,4,ZoneF
+2025-05-05T10:00:00Z,C01,Waiting Room A,690,740,11.8,126,24.0,53,51,5,9,3,ZoneA
+2025-05-10T14:30:00Z,C02,Consultation 1,530,600,8.0,98,22.7,49,44,1,10,2,ZoneB
+2025-05-15T09:45:00Z,C03,TB Clinic Waiting,1000,1190,23.8,195,23.5,60,56,13,5,2,ZoneC
+2025-05-20T11:15:00Z,C04,General Waiting Area,740,810,13.8,138,24.2,55,50,6,6,4,ZoneD
+2025-05-25T16:30:00Z,C05,Waiting Room E,760,830,12.2,134,23.9,54,49,5,8,3,ZoneE
+2025-05-28T08:00:00Z,C06,Screening Tent F,890,1020,18.0,168,25.6,60,58,9,3,4,ZoneF
+2025-05-29T10:00:00Z,C01,Consultation 1,570,650,8.9,102,23.4,52,47,2,12,3,ZoneA
+2025-05-30T13:00:00Z,C02,Waiting Room B,810,930,15.5,152,25.0,59,56,8,5,3,ZoneB
