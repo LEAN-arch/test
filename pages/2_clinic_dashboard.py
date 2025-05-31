@@ -2,10 +2,15 @@
 import streamlit as st
 import pandas as pd
 import os
-# import sys # Removed explicit sys.path manipulation
+import sys 
 import logging
 from datetime import date, timedelta 
 import numpy as np
+
+# --- Explicitly add project root to sys.path for robust imports ---
+PROJECT_ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if PROJECT_ROOT_PATH not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT_PATH)
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -14,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Project-specific absolute imports (from 'test/' root)
+# Project-specific absolute imports:
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
@@ -26,8 +31,7 @@ from utils.ai_analytics_engine import (
     apply_ai_models
 )
 
-# Absolute imports for components from the 'pages' package.
-# Requires 'test/pages/__init__.py' and 'test/pages/clinic_components/__init__.py'
+# Absolute imports for components from the 'pages' package
 from pages.clinic_components import kpi_display
 from pages.clinic_components import environmental_kpis
 from pages.clinic_components import epi_module
@@ -61,29 +65,29 @@ def get_clinic_dashboard_data_enriched():
     if not health_df_raw.empty:
         health_df_ai_enriched = apply_ai_models(health_df_raw)
         health_df_for_display = health_df_ai_enriched if not health_df_ai_enriched.empty else health_df_raw
-    else:
-        logger.error("Clinic Dashboard: Base health records failed to load or were empty.")
+    else: logger.error("Clinic Dashboard: Base health records failed to load or were empty.")
         
     iot_df_for_display = iot_df_raw if iot_df_raw is not None else pd.DataFrame()
 
-    if health_df_for_display.empty : 
-        logger.warning("Clinic Dashboard: Health data (raw or AI enriched) is empty after processing.")
+    if health_df_for_display.empty : logger.warning("Clinic Dashboard: Health data (raw or AI enriched) is empty after processing.")
     logger.info(f"Clinic Dashboard: Data loaded. Health records: {len(health_df_for_display)}, IoT records: {len(iot_df_for_display)}")
     return health_df_for_display, iot_df_for_display
 
 health_df_clinic_main, iot_df_clinic_main = get_clinic_dashboard_data_enriched()
 
-# --- Main Page Rendering ---
 health_data_available = health_df_clinic_main is not None and not health_df_clinic_main.empty
 iot_data_available = iot_df_clinic_main is not None and not iot_df_clinic_main.empty
 
+# --- Main Page Title for Clinic Dashboard ---
 if not health_data_available:
     st.error("🚨 **Critical Error:** Health records data unavailable. Clinic Dashboard features will be significantly limited.")
     logger.critical("Clinic Dashboard: health_df_clinic_main is empty. Most sections cannot render.")
-
-st.title("🏥 Clinic Operations & Environmental Dashboard")
-st.markdown("**Service Efficiency, Quality of Care, Resource Management, Environment, & Local Epidemiology**")
+    # Still render title for consistency
+    
+st.title("🏥 Clinic Operations & Environmental Dashboard") # CORRECT CLINIC TITLE
+st.markdown("**Service Efficiency, Quality of Care, Resource Management, Environment, & Local Epidemiology**") # CORRECT CLINIC SUBTITLE
 st.markdown("---")
+# !!! IMPORTANT: Any duplicated "DHO Dashboard" titles that were here have been removed. !!!
 
 # --- Sidebar Filters & Date Range Setup ---
 if os.path.exists(app_config.APP_LOGO): st.sidebar.image(app_config.APP_LOGO, width=100); st.sidebar.markdown("---")
@@ -111,27 +115,32 @@ if selected_start_date_cl > selected_end_date_cl: selected_start_date_cl = selec
 
 # --- Filter dataframes for selected period ---
 filtered_health_df_clinic = pd.DataFrame(columns=(health_df_clinic_main.columns if health_data_available else []))
-if health_data_available:
-    health_df_clinic_main.loc[:,'encounter_date'] = pd.to_datetime(health_df_clinic_main['encounter_date'], errors='coerce') # Use .loc for assignment
-    health_df_clinic_main.loc[:,'encounter_date_obj'] = health_df_clinic_main['encounter_date'].dt.date
-    valid_dates_filter_health = health_df_clinic_main['encounter_date_obj'].notna()
-    df_health_to_filter_period = health_df_clinic_main[valid_dates_filter_health].copy()
+if health_data_available and 'encounter_date' in health_df_clinic_main.columns: # Check column exists before .dt
+    health_df_clinic_main.loc[:, 'encounter_date'] = pd.to_datetime(health_df_clinic_main['encounter_date'], errors='coerce')
+    health_df_clinic_main.loc[:, 'encounter_date_obj'] = health_df_clinic_main['encounter_date'].dt.date
+    valid_dates_for_filtering_health = health_df_clinic_main['encounter_date_obj'].notna()
+    df_health_to_filter_period = health_df_clinic_main[valid_dates_for_filtering_health].copy()
     if not df_health_to_filter_period.empty: filtered_health_df_clinic = df_health_to_filter_period[ (df_health_to_filter_period['encounter_date_obj'] >= selected_start_date_cl) & (df_health_to_filter_period['encounter_date_obj'] <= selected_end_date_cl) ].copy()
-    if filtered_health_df_clinic.empty and not df_health_to_filter_period.empty : st.info(f"ℹ️ No health encounter data available for period: {selected_start_date_cl.strftime('%d %b %Y')} - {selected_end_date_cl.strftime('%d %b %Y')}.")
 
 filtered_iot_df_clinic = pd.DataFrame(columns=(iot_df_clinic_main.columns if iot_data_available else []))
-if iot_data_available:
+if iot_data_available and 'timestamp' in iot_df_clinic_main.columns: # Check column exists
     iot_df_clinic_main.loc[:,'timestamp'] = pd.to_datetime(iot_df_clinic_main['timestamp'], errors='coerce')
     iot_df_clinic_main.loc[:,'timestamp_date_obj'] = iot_df_clinic_main['timestamp'].dt.date
-    valid_dates_filter_iot = iot_df_clinic_main['timestamp_date_obj'].notna()
-    df_iot_to_filter_period = iot_df_clinic_main[valid_dates_filter_iot].copy()
+    valid_dates_for_filtering_iot = iot_df_clinic_main['timestamp_date_obj'].notna()
+    df_iot_to_filter_period = iot_df_clinic_main[valid_dates_for_filtering_iot].copy()
     if not df_iot_to_filter_period.empty: filtered_iot_df_clinic = df_iot_to_filter_period[ (df_iot_to_filter_period['timestamp_date_obj'] >= selected_start_date_cl) & (df_iot_to_filter_period['timestamp_date_obj'] <= selected_end_date_cl) ].copy()
-    if filtered_iot_df_clinic.empty and not df_iot_to_filter_period.empty: st.info(f"ℹ️ No IoT environmental data for period: {selected_start_date_cl.strftime('%d %b %Y')} - {selected_end_date_cl.strftime('%d %b %Y')}.")
-elif not iot_data_available : st.info("ℹ️ IoT environmental data is currently unavailable for this system.")
 
 date_range_display_str = f"({selected_start_date_cl.strftime('%d %b %Y')} - {selected_end_date_cl.strftime('%d %b %Y')})"
-base_cols_for_empty_summary = health_df_clinic_main.columns if health_data_available else ['test_type', 'test_result', 'test_turnaround_days', 'sample_status', 'encounter_date'] # Min for summary
-clinic_service_kpis = get_clinic_summary(filtered_health_df_clinic if not filtered_health_df_clinic.empty else pd.DataFrame(columns=base_cols_for_empty_summary))
+base_cols_for_empty_summary_clinic = health_df_clinic_main.columns if health_data_available else ['test_type', 'test_result', 'test_turnaround_days', 'sample_status', 'encounter_date']
+clinic_service_kpis = get_clinic_summary(filtered_health_df_clinic if not filtered_health_df_clinic.empty else pd.DataFrame(columns=base_cols_for_empty_summary_clinic))
+
+# Display messages if filtered data is empty
+if health_data_available and filtered_health_df_clinic.empty and (health_df_clinic_main['encounter_date_obj'].notna() & ((health_df_clinic_main['encounter_date_obj'] >= selected_start_date_cl) & (health_df_clinic_main['encounter_date_obj'] <= selected_end_date_cl))).any():
+    # This means main data had relevant dates but filter for *this period* yielded nothing.
+    st.info(f"ℹ️ No health encounter data for the selected period: {date_range_display_str}.")
+if iot_data_available and filtered_iot_df_clinic.empty and (iot_df_clinic_main['timestamp_date_obj'].notna() & ((iot_df_clinic_main['timestamp_date_obj'] >= selected_start_date_cl) & (iot_df_clinic_main['timestamp_date_obj'] <= selected_end_date_cl))).any():
+    st.info(f"ℹ️ No IoT data for the selected period: {date_range_display_str}.")
+
 
 # --- Display Main Sections using Components ---
 if health_data_available:
@@ -140,16 +149,20 @@ if health_data_available:
 else: st.warning("Main clinic performance KPIs cannot be displayed as health data is unavailable.")
 environmental_kpis.render_clinic_environmental_kpis(filtered_iot_df_clinic, date_range_display_str, iot_data_available)
 st.markdown("---")
-if health_data_available and not filtered_health_df_clinic.empty: # Only show epi module if there's data in period
-    epi_module.render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str)
-else: st.warning("Clinic Epidemiology module cannot be displayed as no health data is available for the selected period.")
+if health_data_available : # Epi module needs health data
+    epi_module.render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str) # Pass the period-filtered health data
+else: st.warning("Clinic Epidemiology module requires health data.")
 st.markdown("---")
 
 # --- Tabbed Interface ---
-tab_titles_final = ["🔬 Testing Insights", "💊 Supply Chain", "🧍 Patient Focus", "🌿 Environment Details"]
-tab_tests, tab_supplies, tab_patients, tab_env = st.tabs(tab_titles_final)
+tab_titles_final_clinic = ["🔬 Testing Insights", "💊 Supply Chain", "🧍 Patient Focus", "🌿 Environment Details"]
+tab_tests_comp_disp, tab_supplies_comp_disp, tab_patients_alerts_comp_disp, tab_environment_detail_comp_disp = st.tabs(tab_titles_clinic_final)
 
-with tab_tests: testing_insights_tab.render_testing_insights(filtered_health_df_clinic, clinic_service_kpis)
-with tab_supplies: supply_chain_tab.render_supply_chain(health_df_clinic_main, filtered_health_df_clinic)
-with tab_patients: patient_focus_tab.render_patient_focus(filtered_health_df_clinic)
-with tab_env: environment_details_tab.render_environment_details(filtered_iot_df_clinic, iot_data_available)
+with tab_tests_comp_disp:
+    testing_insights_tab.render_testing_insights(filtered_health_df_clinic, clinic_service_kpis)
+with tab_supplies_comp_disp:
+    supply_chain_tab.render_supply_chain(health_df_clinic_main, filtered_health_df_clinic)
+with tab_patients_alerts_comp_disp:
+    patient_focus_tab.render_patient_focus(filtered_health_df_clinic)
+with tab_environment_detail_comp_disp:
+    environment_details_tab.render_environment_details(filtered_iot_df_clinic, iot_data_available)
