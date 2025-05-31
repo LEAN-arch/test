@@ -53,13 +53,18 @@ def load_css(css_file_path: str):
 load_css(app_config.STYLE_CSS_PATH)
 
 # --- App Header ---
-header_cols = st.columns([0.08, 0.92]) 
+header_cols = st.columns([0.12, 0.88]) # Adjusted column ratio slightly for a potentially larger logo
 with header_cols[0]:
-    if os.path.exists(app_config.APP_LOGO): st.image(app_config.APP_LOGO, width=70) 
-    else: logger.warning(f"Header logo not found at: {app_config.APP_LOGO}"); st.markdown("❤️", unsafe_allow_html=True)      
+    if os.path.exists(app_config.APP_LOGO):
+        st.image(app_config.APP_LOGO, width=100) # << INCREASED LOGO WIDTH
+    else:
+        logger.warning(f"Header logo not found at: {app_config.APP_LOGO}")
+        st.markdown("❤️", unsafe_allow_html=True) # Fallback emoji icon
+
 with header_cols[1]:
     st.title(app_config.APP_TITLE)
     st.caption(f"Version {app_config.APP_VERSION}  |  Empowering Health Decisions with Data-Driven Insights")
+
 st.markdown("---") 
 
 # --- App Introduction ---
