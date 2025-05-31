@@ -17,6 +17,7 @@ import plotly.express as px
 
 # --- Page Configuration and Styling ---
 st.set_page_config(page_title="Clinic Dashboard - Health Hub", layout="wide", initial_sidebar_state="expanded")
+logging.basicConfig(...)
 logger = logging.getLogger(__name__) 
 
 @st.cache_resource 
@@ -28,6 +29,8 @@ def load_css():
 load_css()
 
 # --- Data Loading ---
+@st.cache_data(...)
+def load_health_records():
 @st.cache_data(ttl=app_config.CACHE_TTL_SECONDS) 
 def get_clinic_dashboard_data():
     logger.info("Clinic Dashboard: Loading health records and IoT data...")
