@@ -2,13 +2,13 @@
 import streamlit as st
 import os
 import pandas as pd 
-from config import app_config 
+from config import app_config # app_config object is imported
 import logging 
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(
     page_title=f"{app_config.APP_TITLE} - Home",
-   
+    page_icon=app_config.APP_LOGO if os.path.exists(app_config.APP_LOGO) else "❤️", 
     layout="wide",
     initial_sidebar_state="expanded", 
     menu_items={
@@ -36,22 +36,28 @@ logger = logging.getLogger(__name__)
 
 # --- Function to load CSS ---
 @st.cache_resource
-def load_css(_config_obj_page): # Use a unique param name if desired
-    if os.path.exists(_config_obj_page.STYLE_CSS_PATH):
-        with open(_config_obj_page.STYLE_CSS_PATH) as f:
+def load_css(_config_obj_param): # Parameter name changed for clarity
+    css_path_to_load = _config_obj_param.STYLE_CSS_PATH 
+    logger.debug(f"load_css trying to access CSS from: {css_path_to_load}")
+    if os.path.exists(css_path_to_load):
+        with open(css_path_to_load) as f:
             st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-            logger.info(f"{_config_obj_page.APP_TITLE} Page: CSS loaded.") # Example of using another attr
+            logger.info(f"Successfully loaded CSS from {css_path_to_load}")
     else:
-        logger.warning(f"CSS file not found at {_config_obj_page.STYLE_CSS_PATH} for this page.")
+        logger.warning(f"CSS file not found at {css_path_to_load}. Styling may be affected.")
 
-# Load custom CSS from configured path
-load_css(app_config) # <--- CORRECTED HERE
+# Load custom CSS by passing the app_config object
+load_css(app_config)
 
 
 # --- App Header ---
 header_cols = st.columns([0.08, 0.92]) 
-
-       
+with header_cols[0]:
+    if os.path.exists(app_config.APP_LOGO):
+        st.image(app_config.APP_LOGO, width=70) 
+    else:
+        logger.warning(f"Header logo not found at: {app_config.APP_LOGO}")
+        st.markdown("❤️", unsafe_allow_html=True)      
 
 with header_cols[1]:
     st.title(app_config.APP_TITLE)
@@ -79,7 +85,7 @@ with st.expander("🧑‍⚕️ **Community Health Worker (CHW) Dashboard** - Da
     - **Key Features:** Daily task lists, high-risk patient identification, wellness monitoring (SpO2, fever, activity levels), and referral tracking.
     - **Objective:** Equip CHWs with timely, actionable information to deliver targeted interventions and improve patient outcomes at the household level.
     """)
-    if st.button("Go to CHW Dashboard", key="nav_chw_home_button_final_v2", type="primary"): # Key incremented
+    if st.button("Go to CHW Dashboard", key="nav_chw_home_button_final_v4", type="primary"): 
         st.switch_page("pages/1_chw_dashboard.py")
 
 
@@ -89,7 +95,7 @@ with st.expander("🏥 **Clinic Operations Dashboard** - Facility-level performa
     - **Key Features:** Test positivity rates, turnaround times, critical drug stock levels, patient load analysis, and clinic environmental health monitoring.
     - **Objective:** Enable clinic managers to optimize resource utilization, enhance service delivery quality, and ensure patient safety and satisfaction.
     """)
-    if st.button("Go to Clinic Dashboard", key="nav_clinic_home_button_final_v2", type="primary"):
+    if st.button("Go to Clinic Dashboard", key="nav_clinic_home_button_final_v4", type="primary"):
         st.switch_page("pages/2_clinic_dashboard.py")
 
 with st.expander("🗺️ **District Health Officer (DHO) Dashboard** - Strategic population health oversight.", expanded=False):
@@ -98,7 +104,7 @@ with st.expander("🗺️ **District Health Officer (DHO) Dashboard** - Strategi
     - **Key Features:** Geospatial mapping of health indicators, zonal comparisons, burden of disease analysis, and data-driven tools for intervention planning.
     - **Objective:** Provide DHOs with a comprehensive strategic overview to guide public health policy, optimize resource deployment, and lead targeted health initiatives.
     """)
-    if st.button("Go to District Dashboard", key="nav_dho_home_button_final_v2", type="primary"):
+    if st.button("Go to District Dashboard", key="nav_dho_home_button_final_v4", type="primary"):
         st.switch_page("pages/3_district_dashboard.py")
 
 
@@ -125,14 +131,16 @@ with capabilities_cols[2]:
 
 
 # --- Sidebar Content Customization ---
-st.sidebar.markdown("---") 
-st.sidebar.image("assets//DNA-DxBrand.png", width=300)
-if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, width=60, use_column_width='auto')
-    st.sidebar.image("assets//DNA-DxBrand.png", width=400)
+if os.path.exists(app_config.APP_LOGO): 
+    st.sidebar.image(app_config.APP_LOGO, use_column_width='auto') # Example: use_column_width for responsive fit, or set fixed width e.g. width=150
+    st.sidebar.markdown("---") 
+else:
+    logger.warning(f"Sidebar logo not found at app_config path: {app_config.APP_LOGO}")
+
 st.sidebar.header(f"{app_config.APP_TITLE.split(' ')[0]} Hub") 
 st.sidebar.caption(f"Version {app_config.APP_VERSION}")
 st.sidebar.markdown("---")
 st.sidebar.caption(app_config.APP_FOOTER)
 st.sidebar.markdown(f"Need help? Contact Support:<br/>[{app_config.CONTACT_EMAIL}](mailto:{app_config.CONTACT_EMAIL})", unsafe_allow_html=True)
+
 logger.info("Application home page loaded successfully.")
