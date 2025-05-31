@@ -73,8 +73,13 @@ st.markdown("**Monitoring Service Efficiency, Quality of Care, Resource Manageme
 st.markdown("---")
 
 # --- Sidebar Filters & Date Range Setup ---
-st.sidebar.image("assets//DNA-DxBrand.png", width=200)
-st.sidebar.header("🗓️ Clinic Filters") 
+if os.path.exists(app_config.APP_LOGO):
+    st.sidebar.image(app_config.APP_LOGO, use_column_width='auto') # Or a fixed width
+    st.sidebar.markdown("---") 
+else:
+    logger.warning(f"Sidebar logo not found on Clinic Dashboard at {app_config.APP_LOGO}")
+
+st.sidebar.header("🗓️ Clinic Filters")
 
 all_potential_dates = [] 
 default_min_date = pd.Timestamp('today').date() - pd.Timedelta(days=app_config.DEFAULT_DATE_RANGE_DAYS_TREND * 3)
