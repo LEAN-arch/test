@@ -82,8 +82,17 @@ st.markdown("---")
 
 # Sidebar (Date Range Logic for Trends - Corrected and Unchanged)
 # ... (Sidebar logic from previous full version for date selectors) ...
+st.title("🗺️ District Health Officer (DHO) Dashboard")
+st.markdown("**Strategic Population Health Insights, Resource Allocation, and Environmental Well-being Monitoring**")
+st.markdown("---")
+
+# --- Sidebar ---
 if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, use_column_width='auto'); st.sidebar.markdown("---")
+    st.sidebar.image(app_config.APP_LOGO, width=230) # << ADJUSTED WIDTH
+    st.sidebar.markdown("---")
+else:
+    logger.warning(f"Sidebar logo not found on DHO Dashboard at {app_config.APP_LOGO}") # Added logger if not present
+
 st.sidebar.header("🗓️ District Filters")
 # (Robust date range selection logic from previous version, copied here)
 all_potential_timestamps_dist_trend = []
