@@ -1,25 +1,42 @@
 # test/pages/3_district_dashboard.py
 import streamlit as st
 import pandas as pd
-import geopandas as gpd
+import geopandas as gpd # Used for type hinting potentially
 import os
 import logging
 import numpy as np
-from datetime import date, timedelta # Added timedelta
+from datetime import date, timedelta
 
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="District Dashboard - Health Hub",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Project-specific absolute imports
 from config import app_config
 from utils.core_data_processing import (
-    load_health_records, load_zone_data, load_iot_clinic_environment_data,
-    enrich_zone_geodata_with_health_aggregates, get_district_summary_kpis, hash_geodataframe
-    # get_trend_data might be used by trends_tab_district component directly
+    load_health_records,
+    load_zone_data,
+    load_iot_clinic_environment_data,
+    enrich_zone_geodata_with_health_aggregates,
+    get_district_summary_kpis,
+    hash_geodataframe # Used for caching GDF
 )
 from utils.ai_analytics_engine import apply_ai_models
-# Import new components
-from pages.district_components import kpi_display_district, map_display_district, \
-                                      trends_tab_district, comparison_tab_district, \
-                                      intervention_tab_district
+# ui_visualization_helpers are imported by components
 
-st.set_page_config(page_title="District Dashboard - Health Hub", layout="wide", initial_sidebar_state="expanded")
+# Project-specific relative imports for components
+# Requires:
+# test/pages/__init__.py (empty)
+# test/pages/district_components/__init__.py (empty)
+from .district_components import kpi_display_district
+from .district_components import map_display_district
+from .district_components import trends_tab_district
+from .district_components import comparison_tab_district
+from .district_components import intervention_tab_district
+
 logger = logging.getLogger(__name__)
 # CSS Loading (as before)
 @st.cache_resource
