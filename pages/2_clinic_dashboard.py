@@ -6,71 +6,40 @@ import logging
 from datetime import date, timedelta 
 import numpy as np
 
-# Assuming 'test' is the root directory from which 'streamlit run app_home.py' is effectively run,
-# making 'config' and 'utils' directly importable subdirectories/packages.
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="Clinic Dashboard - Health Hub",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Project-specific absolute imports
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
     load_iot_clinic_environment_data,
     get_clinic_summary,
-    get_clinic_environmental_summary 
-    # Note: get_trend_data, get_supply_forecast_data, get_patient_alerts_for_clinic
-    # are primarily used within components now. They can be imported there if not needed at this top level.
+    get_clinic_environmental_summary # Key summary functions used by components or directly
 )
 from utils.ai_analytics_engine import (
     apply_ai_models
-    # SupplyForecastingModel is used by supply_chain_tab.py
+    # SupplyForecastingModel will be imported by supply_chain_tab.py if needed there
 )
+# ui_visualization_helpers are imported by components as needed
 
-# Imports for component modules.
-# This structure assumes:
-# test/
-#  ├─ pages/
-#  │  ├─ 2_clinic_dashboard.py
-#  │  ├─ clinic_components/
-#  │  │  ├─ __init__.py (can be empty)
-#  │  │  ├─ kpi_display.py
-#  │  │  ├─ environmental_kpis.py
-#  │  │  ├─ epi_module.py
-#  │  │  ├─ testing_insights_tab.py
-#  │  │  ├─ supply_chain_tab.py
-#  │  │  ├─ patient_focus_tab.py
-#  │  │  └─ environment_details_tab.py
-#  ├─ utils/
-#  ├─ config/
-#  └─ app_home.py
+# Project-specific relative imports for components
+# Requires:
+# test/pages/__init__.py (empty)
+# test/pages/clinic_components/__init__.py (empty)
+from .clinic_components import kpi_display
+from .clinic_components import environmental_kpis
+from .clinic_components import epi_module
+from .clinic_components import testing_insights_tab
+from .clinic_components import supply_chain_tab
+from .clinic_components import patient_focus_tab
+from .clinic_components import environment_details_tab
 
-# If running `streamlit run test/app_home.py`, Streamlit adds 'test' to sys.path.
-# And for pages, it handles 'test/pages' for discovery.
-# Relative imports from within 'test/pages/2_clinic_dashboard.py' to 'test/pages/clinic_components/'
-# should be: from .clinic_components import ...
-
-try:
-    from .clinic_components import kpi_display
-    from .clinic_components import environmental_kpis
-    from .clinic_components import epi_module
-    from .clinic_components import testing_insights_tab
-    from .clinic_components import supply_chain_tab
-    from .clinic_components import patient_focus_tab
-    from .clinic_components import environment_details_tab
-except ImportError: # Fallback for different execution contexts or if __init__.py missing
-    logger.warning("Could not use relative import for clinic_components. Trying absolute assuming 'pages' is on path.")
-    from pages.clinic_components import kpi_display # This might work if 'test' is added to PYTHONPATH manually
-    from pages.clinic_components import environmental_kpis
-    from pages.clinic_components import epi_module
-    from pages.clinic_components import testing_insights_tab
-    from pages.clinic_components import supply_chain_tab
-    from pages.clinic_components import patient_focus_tab
-    from pages.clinic_components import environment_details_tab
-
-
-# --- Page Configuration and Styling --- # This should ideally be first, but after imports.
-st.set_page_config( # Moved this down slightly, after imports. This is generally fine.
-    page_title="Clinic Dashboard - Health Hub",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-logger = logging.getLogger(__name__) # Get logger after config and basic imports.
+logger = logging.getLogger(__name__)
 
 @st.cache_resource
 def load_css_clinic():
