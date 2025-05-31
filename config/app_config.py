@@ -3,7 +3,10 @@ import os
 import pandas as pd
 
 # Base directory of the application
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # health_hub directory
+# In health_hub/config/app_config.py
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+APP_LOGO = os.path.join(ASSETS_DIR, "DNA-DxBrand.png") 
 
 # Data sources directory
 DATA_SOURCES_DIR = os.path.join(BASE_DIR, "data_sources")
