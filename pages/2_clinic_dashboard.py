@@ -2,20 +2,15 @@
 import streamlit as st
 import pandas as pd
 import os
-import sys # <<<< IMPORT SYS
+import sys 
 import logging
 from datetime import date, timedelta 
 import numpy as np
 
 # --- Explicitly add project root to sys.path for robust imports ---
-# This assumes this file is in 'test/pages/' and the project root is 'test/'
-# which contains 'utils/', 'config/', 'pages/' etc.
 PROJECT_ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if PROJECT_ROOT_PATH not in sys.path:
     sys.path.insert(0, PROJECT_ROOT_PATH)
-    # Optional: For debugging, you can print the path modification
-    # print(f"DEBUG [2_clinic_dashboard.py]: Added to sys.path: {PROJECT_ROOT_PATH}", file=sys.stderr)
-    # print(f"DEBUG [2_clinic_dashboard.py]: Current sys.path: {sys.path}", file=sys.stderr)
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -24,26 +19,27 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Now, these absolute imports should work reliably:
+# Project-specific absolute imports (now should work reliably):
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
     load_iot_clinic_environment_data,
     get_clinic_summary,
-    get_ clinic_environmental_summary
+    get_clinic_environmental_summary # <<< CORRECTED: Space removed
 )
 from utils.ai_analytics_engine import (
     apply_ai_models
 )
 
-# And imports for components should also work treating 'pages' as a top-level package found via project root
-from pages.clinic_components import kpi_display
-from pages.clinic_components import environmental_kpis
-from pages.clinic_components import epi_module
-from pages.clinic_components import testing_insights_tab
-from pages.clinic_components import supply_chain_tab
-from pages.clinic_components import patient_focus_tab
-from pages.clinic_components import environment_details_tab # <--- The line from traceback
+# Project-specific relative imports for components
+# Requires appropriate __init__.py files in 'pages' and 'pages/clinic_components'
+from .clinic_components import kpi_display
+from .clinic_components import environmental_kpis
+from .clinic_components import epi_module
+from .clinic_components import testing_insights_tab
+from .clinic_components import supply_chain_tab
+from .clinic_components import patient_focus_tab
+from .clinic_components import environment_details_tab
 
 logger = logging.getLogger(__name__)
 
