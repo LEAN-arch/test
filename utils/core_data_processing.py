@@ -28,14 +28,17 @@ def hash_geodataframe(gdf): # pragma: no cover
         return (data_hash_part, geometry_hash_part, crs_hash_part)
     except Exception as e:
         logger.error(f"Error hashing GeoDataFrame (falling back to basic hash of head): {e}", exc_info=True)
-        return (str(gdf.drop(columns=[gdf.geometry.name], errors='ignore').head(3).to_dict()), str(gdf.geometry.to_wkt().head(3).to_dict()), str(gdf.crs.to_wkt() if gdf.crs else None))
+        return (
+            str(gdf.drop(columns=[gdf.geometry.name], errors='ignore').head(3).to_dict()),
+            str(gdf.geometry.to_wkt().head(3).to_dict()),
+            str(gdf.crs.to_wkt() if gdf.crs else None)
+        )
 
 # --- Data Loading Functions ---
 @st.cache_data(ttl=app_config.CACHE_TTL_SECONDS)
 def load_health_records():
     file_path = app_config.HEALTH_RECORDS_CSV
     logger.info(f"Attempting to load health records from: {file_path}")
-    # Updated default_empty_health_df_cols to include new sample rejection columns
     default_empty_health_df_cols = ["date", "zone_id", "patient_id", "condition", "ai_risk_score", 'item', 'stock_on_hand', 'consumption_rate_per_day', 'test_type', 'test_result', 'test_turnaround_days', 'sample_status', 'rejection_reason']
     default_empty_health_df = pd.DataFrame(columns=default_empty_health_df_cols)
     try:
@@ -49,6 +52,7 @@ def load_health_records():
             logger.warning(f"Health records file '{file_path}' is empty.")
             return default_empty_health_df
 
+
         date_cols_to_parse = ['date', 'referral_date', 'test_date']
         for col in date_cols_to_parse:
             if col in df.columns:
@@ -61,6 +65,7 @@ def load_health_records():
             st.error("Health records are missing a valid 'date' column. Processing cannot continue reliably.")
             return default_empty_health_df
 
+
         required_cols = ["zone_id", "patient_id", "condition", "ai_risk_score"] 
         missing_req = [col for col in required_cols if col not in df.columns or df[col].isnull().all()] 
         if missing_req:
@@ -69,23 +74,21 @@ def load_health_records():
             return default_empty_health_df
 
         numeric_cols_expected = ['test_turnaround_days', 'quantity_dispensed', 'stock_on_hand', 'consumption_rate_per_day', 'ai_risk_score', 'avg_daily_steps', 'avg_spo2', 'min_spo2_pct', 'max_skin_temp_celsius', 'fall_detected_today', 'age', 'chw_visit', 'tb_contact_traced', 'resting_heart_rate', 'avg_hrv', 'avg_sleep_duration_hrs', 'sleep_score_pct', 'stress_level_score', 'hiv_viral_load']
-        string_cols_expected = ['patient_id', 'condition', 'test_type', 'test_result', 'item', 'zone_id', 'clinic_id', 'physician_id', 'notes', 'hpv_status', 'referral_status', 'gender', 'sample_status', 'rejection_reason'] # Added new sample cols
+        string_cols_expected = ['patient_id', 'condition', 'test_type', 'test_result', 'item', 'zone_id', 'clinic_id', 'physician_id', 'notes', 'hpv_status', 'referral_status', 'gender', 'sample_status', 'rejection_reason'] 
 
         for col in numeric_cols_expected:
             if col not in df.columns: df[col] = np.nan
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        common_null_strs = ['', 'nan', 'None', 'NONE', 'Null', 'NULL', '<NA>', 'N/A', ' '] # Added single space
+        common_null_strs = ['', 'nan', 'None', 'NONE', 'Null', 'NULL', '<NA>', 'N/A', ' '] 
         for col in string_cols_expected:
             if col not in df.columns: df[col] = 'Unknown'
             df[col] = df[col].astype(str).fillna('Unknown')
-            # Replace common null/empty representations and whitespace-only with 'Unknown'
-            df[col] = df[col].str.strip() # Remove leading/trailing whitespace first
+            df[col] = df[col].str.strip() 
             df.loc[df[col].isin(common_null_strs), col] = 'Unknown'
         
         df['condition'] = df['condition'].replace('Healthy Checkup', 'Wellness Visit')
-        # Clean test_result further, map N/A specifically, handle potential case issues if needed
-        df['test_result'] = df['test_result'].str.strip().replace({'Positive ': 'Positive', ' Negative': 'Negative', 'N/A':'Unknown', 'nan':'Unknown'})
+        df['test_result'] = df['test_result'].replace({'Positive ': 'Positive', ' Negative': 'Negative', 'N/A':'Unknown', 'nan':'Unknown'})
         
         df.dropna(subset=['patient_id', 'zone_id', 'date'], inplace=True)
         df = df[~df['patient_id'].isin(['Unknown'])]
@@ -109,6 +112,7 @@ def load_health_records():
         logger.error(f"Unexpected error loading health records from {file_path}: {e}", exc_info=True)
         st.error(f"An unexpected error occurred while loading health records: {e}")
         return default_empty_health_df
+
 
 @st.cache_data(ttl=app_config.CACHE_TTL_SECONDS, hash_funcs={gpd.GeoDataFrame: hash_geodataframe})
 def load_zone_data():
@@ -195,9 +199,8 @@ def enrich_zone_geodata_with_health_aggregates(zone_gdf_base, health_df_input, i
             for zone_val, group_df in health_df.groupby('zone_id'):
                 summary = {'zone_id': zone_val}
                 summary['avg_risk_score'] = group_df.get('ai_risk_score', pd.Series(dtype=float)).mean()
-                if 'condition' not in group_df.columns: group_df['condition'] = pd.Series(dtype=str) # Ensure 'condition' exists for .isin/.str
+                if 'condition' not in group_df.columns: group_df['condition'] = pd.Series(dtype=str) 
                 else: group_df['condition'] = group_df['condition'].astype(str) 
-                
                 summary['active_tb_cases'] = group_df[group_df['condition'].isin(['TB'])]['patient_id'].nunique()
                 summary['active_malaria_cases'] = group_df[group_df['condition'].isin(['Malaria'])]['patient_id'].nunique()
                 summary['hiv_positive_cases'] = group_df[group_df['condition'].isin(['HIV-Positive'])]['patient_id'].nunique()
@@ -343,128 +346,71 @@ def get_patient_alerts_for_chw(df_chw_day_view, risk_threshold_moderate=None):
 
 @st.cache_data(hash_funcs={pd.DataFrame: lambda df: df.to_parquet() if not df.empty and isinstance(df, pd.DataFrame) else None})
 def get_clinic_summary(df_clinic_period_view): 
-    default_summary = {
-        "tb_sputum_positivity": 0.0, "malaria_positivity": 0.0, 
-        "sti_critical_tests_pending": 0, "hiv_tests_conclusive_period": 0, 
-        "key_drug_stockouts": 0, "avg_test_turnaround_all_tests":0.0, 
-        "hpv_screening_coverage_proxy":0.0, "avg_patient_risk_clinic":0.0,
-        "test_summary_details": {}, "sample_rejection_rate":0.0,
-        "overall_perc_met_tat": 0.0, "total_pending_critical_tests": 0
-    }
-    if df_clinic_period_view is None or df_clinic_period_view.empty: 
-        logger.debug("get_clinic_summary received empty/None DataFrame. Returning default summary.")
-        return default_summary
-        
+    default_summary = { "tb_sputum_positivity": 0.0, "malaria_positivity": 0.0, "sti_critical_tests_pending": 0, "hiv_tests_conclusive_period": 0, "key_drug_stockouts": 0, "avg_test_turnaround_all_tests":0.0, "hpv_screening_coverage_proxy":0.0, "avg_patient_risk_clinic":0.0, "test_summary_details": {}, "sample_rejection_rate":0.0, "overall_perc_met_tat": 0.0, "total_pending_critical_tests": 0 }
+    if df_clinic_period_view is None or df_clinic_period_view.empty: logger.debug("get_clinic_summary received empty/None DataFrame. Returning default summary."); return default_summary
     df = df_clinic_period_view.copy(); 
-    str_cols = ['test_type', 'test_result', 'item', 'condition', 'patient_id', 'sample_status'] # Added sample_status
+    str_cols = ['test_type', 'test_result', 'item', 'condition', 'patient_id', 'sample_status'] 
     num_cols = ['stock_on_hand', 'consumption_rate_per_day', 'test_turnaround_days', 'ai_risk_score']
-    for col in str_cols: df[col] = df.get(col, pd.Series(dtype='str')).astype(str).fillna('Unknown').replace(['', 'nan', 'None', 'N/A'], 'Unknown') # Ensure N/A also becomes Unknown for consistency
+    for col in str_cols: df[col] = df.get(col, pd.Series(dtype='str')).astype(str).fillna('Unknown').replace(['', 'nan', 'None', 'N/A'], 'Unknown')
     for col in num_cols: df[col] = pd.to_numeric(df.get(col), errors='coerce')
 
-    test_summary_details = {} # To store detailed stats per test group
-    
-    # Use KEY_TEST_TYPES_FOR_ANALYSIS from app_config for dynamic processing
-    for group_key, group_config in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items():
-        test_types_in_group = group_config.get("types", [group_key]) # If "types" not specified, assume group_key is the test_type
-        if isinstance(test_types_in_group, str): test_types_in_group = [test_types_in_group] # Ensure it's a list
-            
+    test_summary_details = {}    
+    for group_key, group_config_details in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items():
+        test_types_in_group = group_config_details.get("types", [group_key]) 
+        if isinstance(test_types_in_group, str): test_types_in_group = [test_types_in_group]
         current_tests_df = df[df.get('test_type', pd.Series(dtype=str)).isin(test_types_in_group)]
-        group_name_display = group_config.get("display_name", group_key.replace("_", " "))
-
+        group_name_display = group_config_details.get("display_name", group_key.replace("_", " "))
         group_stats = {"total_done_in_period": 0, "conclusive_count": 0, "positive_count": 0, "positive_rate": 0.0, "pending_count": 0, "avg_tat_days": 0.0, "perc_met_tat_target": 0.0, "rejected_count": 0}
-        
         if not current_tests_df.empty:
-            # Use unique patient_id for counts where it makes sense (positivity, conclusive)
             positive_patients = current_tests_df[current_tests_df['test_result'] == 'Positive']['patient_id'].nunique()
-            
             conclusive_mask = ~current_tests_df['test_result'].isin(['Pending', 'Unknown', 'Rejected Sample'])
             conclusive_tests_df = current_tests_df[conclusive_mask]
             conclusive_patients_count = conclusive_tests_df['patient_id'].nunique()
-            
             pending_patients = current_tests_df[current_tests_df['test_result'] == 'Pending']['patient_id'].nunique()
-            rejected_count = current_tests_df[current_tests_df['test_result'] == 'Rejected Sample'].shape[0] # Count of rejected samples for this test type
-
+            rejected_count = current_tests_df[current_tests_df['test_result'] == 'Rejected Sample'].shape[0]
             tat_valid_tests_df = conclusive_tests_df[conclusive_tests_df['test_turnaround_days'].notna()]
             avg_tat_for_group = tat_valid_tests_df['test_turnaround_days'].mean()
-            # In utils/core_data_processing.py, inside get_clinic_summary, before the problematic line
-logger.debug(f"Accessing app_config.TARGET_TEST_TURNAROUND_DAYS. Type of app_config: {type(app_config)}")
-logger.debug(f"Does app_config have TARGET_TEST_TURNAROUND_DAYS? {'TARGET_TEST_TURNAROUND_DAYS' in dir(app_config)}")
-if 'TARGET_TEST_TURNAROUND_DAYS' in dir(app_config):
-    logger.debug(f"Value of app_config.TARGET_TEST_TURNAROUND_DAYS: {app_config.TARGET_TEST_TURNAROUND_DAYS}")
-else:
-    logger.error("CRITICAL DEBUG: TARGET_TEST_TURNAROUND_DAYS is NOT an attribute of the imported app_config module!")
-    # You could even list all attributes to see what IS there:
-    # logger.debug(f"Available attributes in app_config: {dir(app_config)}")
-
-target_tat_for_group = config_details.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS) # Line 390
-            target_tat = group_config.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS) # Use specific or global TAT
+            target_tat = group_config_details.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
             met_target_tests_count = tat_valid_tests_df[tat_valid_tests_df['test_turnaround_days'] <= target_tat].shape[0]
-            
-            group_stats["total_done_in_period"] = current_tests_df.shape[0] # All tests of this type recorded
-            group_stats["conclusive_count"]= conclusive_patients_count 
-            group_stats["positive_count"] = positive_patients
-            group_stats["positive_rate"]= (positive_patients / conclusive_patients_count) * 100 if conclusive_patients_count > 0 else 0.0
-            group_stats["pending_count"]= pending_patients
-            group_stats["avg_tat_days"]= avg_tat_for_group if pd.notna(avg_tat_for_group) else 0.0
-            group_stats["perc_met_tat_target"]= (met_target_tests_count / tat_valid_tests_df.shape[0]) * 100 if not tat_valid_tests_df.empty else 0.0
-            group_stats["rejected_count"] = rejected_count
-        
-        test_summary_details[group_name_display] = group_stats # Use display name as key
+            group_stats.update({ "total_done_in_period": current_tests_df.shape[0], "conclusive_count": conclusive_patients_count, "positive_count": positive_patients, "positive_rate": (positive_patients / conclusive_patients_count) * 100 if conclusive_patients_count > 0 else 0.0, "pending_count": pending_patients, "avg_tat_days": avg_tat_for_group if pd.notna(avg_tat_for_group) else 0.0, "perc_met_tat_target": (met_target_tests_count / tat_valid_tests_df.shape[0]) * 100 if not tat_valid_tests_df.empty else 0.0, "rejected_count": rejected_count })
+        test_summary_details[group_name_display] = group_stats
     
-    # --- Overall KPIs derived from detailed stats or calculated broadly ---
-    tb_sputum_positivity = test_summary_details.get("TB Sputum/GeneXpert", {}).get("positive_rate", 0.0) # Match a potential display name
-    if not tb_sputum_positivity and "TB_Tests" in test_summary_details: tb_sputum_positivity = test_summary_details["TB_Tests"].get("positive_rate", 0.0)
-
-    malaria_positivity = test_summary_details.get("Malaria RDT/Microscopy", {}).get("positive_rate", 0.0)
-    if not malaria_positivity and "Malaria_Tests" in test_summary_details: malaria_positivity = test_summary_details["Malaria_Tests"].get("positive_rate", 0.0)
-
-    hiv_tests_conclusive_period = test_summary_details.get("HIV Rapid/VL", {}).get("conclusive_count",0)
-    if not hiv_tests_conclusive_period and "HIV_Tests" in test_summary_details: hiv_tests_conclusive_period = test_summary_details["HIV_Tests"].get("conclusive_count",0)
-
-    sti_critical_tests_pending = sum(test_summary_details.get(test_group, {}).get("pending_count", 0) 
-                                    for test_group, cfg in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() 
-                                    if cfg.get("disease_group") == "STI" and cfg.get("critical"))
-
+    tb_sputum_positivity = test_summary_details.get(app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get("Sputum-GeneXpert",{}).get("display_name","TB GeneXpert"), {}).get("positive_rate", 0.0)
+    malaria_positivity = test_summary_details.get(app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get("RDT-Malaria",{}).get("display_name","Malaria RDT"), {}).get("positive_rate", 0.0)
+    hiv_tests_conclusive_period = test_summary_details.get(app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get("HIV-Rapid",{}).get("display_name","HIV Rapid Test"), {}).get("conclusive_count",0)
+    sti_critical_tests_pending = sum(test_summary_details.get(cfg.get("display_name", key), {}).get("pending_count", 0) for key, cfg in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if cfg.get("disease_group") == "STI" and cfg.get("critical"))
 
     df['days_of_supply'] = df.apply(lambda r: (r.get('stock_on_hand',0)/r.get('consumption_rate_per_day',0)) if pd.notna(r.get('stock_on_hand')) and pd.notna(r.get('consumption_rate_per_day')) and r.get('consumption_rate_per_day',0)>0 else np.nan, axis=1)
     latest_stock_in_period = df.sort_values('date').drop_duplicates(subset=['item'], keep='last')
     key_drug_stockouts = latest_stock_in_period[(latest_stock_in_period['days_of_supply'].notna()) & (latest_stock_in_period['days_of_supply'] <= app_config.CRITICAL_SUPPLY_DAYS) & (latest_stock_in_period.get('item', pd.Series(dtype=str)).str.contains('|'.join(app_config.KEY_DRUG_SUBSTRINGS_SUPPLY), case=False, na=False))]['item'].nunique()
     
-    all_conclusive_w_tat_overall = df[(~df.get('test_result',pd.Series(dtype=str)).isin(['Pending', 'Unknown', 'Rejected Sample'])) & (df.get('test_turnaround_days',pd.Series(dtype=float)).notna())]
+    all_conclusive_w_tat_overall = df[(~df.get('test_result',pd.Series(dtype=str)).isin(['Pending', 'Unknown', 'Rejected Sample'])) & (df.get('test_turnaround_days',pd.Series(dtype=float)).notna())] # Include 'N/A' if it means not done. Exclude if it means a final result.
     avg_test_turnaround_all_tests = all_conclusive_w_tat_overall.get('test_turnaround_days',pd.Series(dtype=float)).mean()
-    all_critical_tests_with_tat = all_conclusive_w_tat_overall[all_conclusive_w_tat_overall['test_type'].isin(app_config.CRITICAL_TESTS_LIST)]
     
-    overall_met_target_count = 0
-    if not all_critical_tests_with_tat.empty:
-        for test_type in all_critical_tests_with_tat['test_type'].unique():
-            target_for_type = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(test_type, {}).get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
-            overall_met_target_count += all_critical_tests_with_tat[
-                (all_critical_tests_with_tat['test_type'] == test_type) &
-                (all_critical_tests_with_tat['test_turnaround_days'] <= target_for_type)
-            ].shape[0]
-    overall_perc_met_tat = (overall_met_target_count / all_critical_tests_with_tat.shape[0]) * 100 if not all_critical_tests_with_tat.empty else 0.0
+    overall_met_target_count_agg = 0; total_critical_tests_with_tat_agg = 0
+    if not all_conclusive_w_tat_overall.empty:
+        for test_type_iter in all_conclusive_w_tat_overall['test_type'].unique():
+            test_type_cfg = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(test_type_iter, {})
+            if test_type_cfg.get("critical", False):
+                tests_of_this_type_with_tat = all_conclusive_w_tat_overall[all_conclusive_w_tat_overall['test_type'] == test_type_iter]
+                total_critical_tests_with_tat_agg += tests_of_this_type_with_tat.shape[0]
+                target_for_type = test_type_cfg.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
+                overall_met_target_count_agg += tests_of_this_type_with_tat[tests_of_this_type_with_tat['test_turnaround_days'] <= target_for_type].shape[0]
+    overall_perc_met_tat = (overall_met_target_count_agg / total_critical_tests_with_tat_agg) * 100 if total_critical_tests_with_tat_agg > 0 else 0.0
+    
+    total_pending_critical_tests = sum(details.get("pending_count",0) for group_disp_name, details in test_summary_details.items() if any(test_type_key in group_disp_name for test_type_key in app_config.CRITICAL_TESTS_LIST))
 
-    
-    hpv_screenings_done = test_summary_details.get("PapSmear",{}).get("total_done_in_period", 0) # Or however PapSmear group is named
+
+    hpv_screenings_done = test_summary_details.get(app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get("PapSmear",{}).get("display_name","Pap Smear"), {}).get("total_done_in_period",0)
     total_unique_patients = df['patient_id'].nunique(); 
     hpv_screening_coverage_proxy = (hpv_screenings_done / total_unique_patients) * 100 if total_unique_patients > 0 else 0.0
     avg_patient_risk_clinic = df.drop_duplicates(subset=['patient_id']).get('ai_risk_score',pd.Series(dtype=float)).mean()
 
-    total_tests_with_status = df[df['sample_status'] != 'Unknown'].shape[0] # Denominator for rejection rate
-    total_rejected_samples = df[df['sample_status'] == 'Rejected'].shape[0]
-    sample_rejection_rate = (total_rejected_samples / total_tests_with_status) * 100 if total_tests_with_status > 0 else 0.0
+    total_tests_with_status = df[df.get('sample_status', pd.Series(dtype=str)) != 'Unknown'].shape[0] 
+    total_rejected_samples = df[df.get('sample_status', pd.Series(dtype=str)) == 'Rejected'].shape[0]
+    sample_rejection_rate_val = (total_rejected_samples / total_tests_with_status) * 100 if total_tests_with_status > 0 else 0.0
 
-    return {"tb_sputum_positivity": tb_sputum_positivity, "malaria_positivity": malaria_positivity, 
-            "sti_critical_tests_pending": sti_critical_tests_pending, "hiv_tests_conclusive_period": hiv_tests_conclusive_period, 
-            "key_drug_stockouts": key_drug_stockouts, 
-            "avg_test_turnaround_all_tests": avg_test_turnaround_all if pd.notna(avg_test_turnaround_all) else 0.0, 
-            "hpv_screening_coverage_proxy": hpv_screening_coverage_proxy, 
-            "avg_patient_risk_clinic": avg_patient_risk_clinic if pd.notna(avg_patient_risk_clinic) else 0.0,
-            "test_summary_details": test_summary_details, 
-            "sample_rejection_rate": sample_rejection_rate,
-            "overall_perc_met_tat": overall_perc_met_tat,
-            "total_pending_critical_tests": sum(details.get("pending_count", 0) for test, details in test_summary_details.items() if test in app_config.CRITICAL_TESTS_LIST or any(t in test for t in app_config.CRITICAL_TESTS_LIST) ) # Approximate
-           }
+    return {"tb_sputum_positivity": tb_sputum_positivity, "malaria_positivity": malaria_positivity, "sti_critical_tests_pending": sti_critical_tests_pending, "hiv_tests_conclusive_period": hiv_tests_conclusive_period, "key_drug_stockouts": key_drug_stockouts, "avg_test_turnaround_all_tests": avg_test_turnaround_all_tests if pd.notna(avg_test_turnaround_all_tests) else 0.0, "hpv_screening_coverage_proxy": hpv_screening_coverage_proxy, "avg_patient_risk_clinic": avg_patient_risk_clinic if pd.notna(avg_patient_risk_clinic) else 0.0, "test_summary_details": test_summary_details, "sample_rejection_rate": sample_rejection_rate_val, "overall_perc_met_tat": overall_perc_met_tat, "total_pending_critical_tests": total_pending_critical_tests }
 
 @st.cache_data(hash_funcs={pd.DataFrame: lambda df: df.to_parquet() if not df.empty and isinstance(df, pd.DataFrame) else None})
 def get_clinic_environmental_summary(df_iot_clinic_period_view): 
@@ -501,7 +447,7 @@ def get_patient_alerts_for_clinic(df_clinic_period_view, risk_threshold_moderate
     s_false_latest = pd.Series([False]*len(latest_records_in_period), index=latest_records_in_period.index) 
     latest_records_in_period.loc[:, 'cond_clinic_high_risk'] = latest_records_in_period.get('ai_risk_score', s_false_latest.copy()) >= risk_high_clinic
     latest_records_in_period.loc[:, 'cond_clinic_recent_critical_positive'] = ((latest_records_in_period.get('test_result', s_false_latest.copy()) == 'Positive') & (latest_records_in_period.get('condition', s_false_latest.copy()).isin(app_config.KEY_CONDITIONS_FOR_TRENDS)) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)) >= (current_snapshot_date_clinic - pd.Timedelta(days=recent_positive_lookback_days))))
-    latest_records_in_period.loc[:, 'cond_clinic_overdue_critical_test'] = ((latest_records_in_period.get('test_result', s_false_latest.copy()) == 'Pending') & (latest_records_in_period.get('test_type', s_false_latest.copy()).isin(app_config.CRITICAL_TESTS_LIST)) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)) < (current_snapshot_date_clinic - pd.Timedelta(days=overdue_test_lookback_days)))) # Used CRITICAL_TESTS_LIST
+    latest_records_in_period.loc[:, 'cond_clinic_overdue_critical_test'] = ((latest_records_in_period.get('test_result', s_false_latest.copy()) == 'Pending') & (latest_records_in_period.get('test_type', s_false_latest.copy()).isin(app_config.CRITICAL_TESTS_LIST)) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('test_date', pd.Series(pd.NaT, index=latest_records_in_period.index)) < (current_snapshot_date_clinic - pd.Timedelta(days=overdue_test_lookback_days)))) 
     latest_records_in_period.loc[:, 'cond_clinic_hiv_high_vl'] = ((latest_records_in_period.get('condition', s_false_latest.copy()) == 'HIV-Positive') & (latest_records_in_period.get('hiv_viral_load', pd.Series(dtype=float, index=latest_records_in_period.index)).notna()) & (latest_records_in_period.get('hiv_viral_load', pd.Series(dtype=float, index=latest_records_in_period.index)) > 1000) ) 
     alert_mask_clinic = (latest_records_in_period.get('cond_clinic_high_risk', s_false_latest.copy()) | latest_records_in_period.get('cond_clinic_recent_critical_positive', s_false_latest.copy()) | latest_records_in_period.get('cond_clinic_overdue_critical_test', s_false_latest.copy()) | latest_records_in_period.get('cond_clinic_hiv_high_vl', s_false_latest.copy())) 
     alerts_df_clinic = latest_records_in_period[alert_mask_clinic].copy()
