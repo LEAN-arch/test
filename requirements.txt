@@ -19,3 +19,8 @@ plotly==5.18.0
 
 # Optional, but sometimes useful for GDAL context if pip installs have issues:
 # rasterio
+# shapely # often a dependency of geopandas, good to list explicitly
+# requests # If any external API calls were planned
+# openpyxl # If reading/writing Excel files
+# prophet # If actual Prophet forecasting was used
+# statsmodels # If ARIMA or other stat models were used
