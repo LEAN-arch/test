@@ -80,12 +80,6 @@ st.title("🗺️ District Health Officer (DHO) Dashboard")
 st.markdown("**Strategic Population Health Insights, Resource Allocation, and Environmental Well-being Monitoring**")
 st.markdown("---")
 
-# Sidebar (Date Range Logic for Trends - Corrected and Unchanged)
-# ... (Sidebar logic from previous full version for date selectors) ...
-st.title("🗺️ District Health Officer (DHO) Dashboard")
-st.markdown("**Strategic Population Health Insights, Resource Allocation, and Environmental Well-being Monitoring**")
-st.markdown("---")
-
 # --- Sidebar ---
 if os.path.exists(app_config.APP_LOGO):
     st.sidebar.image(app_config.APP_LOGO, width=230) # << ADJUSTED WIDTH
