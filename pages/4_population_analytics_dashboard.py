@@ -86,11 +86,12 @@ default_pop_end_date = max_date_pop
 
 selected_start_date_pop, selected_end_date_pop = st.sidebar.date_input(
     "Select Date Range for Analysis:", value=[default_pop_start_date, default_pop_end_date],
-    min_value=min_date_pop, max_value=max_date_pop, key="pop_analytics_date_range_v3" # Incremented key
+    min_value=min_date_pop, max_value=max_date_pop, key="pop_analytics_date_range_v3"
 )
 if selected_start_date_pop > selected_end_date_pop:
     st.sidebar.error("Error: Start date must be before end date."); selected_start_date_pop = selected_end_date_pop
 
+analytics_df_base = pd.DataFrame(columns=health_df_pop.columns) # Initialize with schema
 if 'encounter_date' in health_df_pop.columns:
     health_df_pop['encounter_date_obj'] = pd.to_datetime(health_df_pop['encounter_date'], errors='coerce').dt.date
     analytics_df_base = health_df_pop[
@@ -98,9 +99,6 @@ if 'encounter_date' in health_df_pop.columns:
         (health_df_pop['encounter_date_obj'] >= selected_start_date_pop) &
         (health_df_pop['encounter_date_obj'] <= selected_end_date_pop)
     ].copy()
-else: # Should not happen if load_health_records is correct
-    analytics_df_base = pd.DataFrame(columns=health_df_pop.columns)
-
 
 if analytics_df_base.empty:
     st.warning(f"No health encounter data found for period: {selected_start_date_pop.strftime('%d %b %Y')} - {selected_end_date_pop.strftime('%d %b %Y')}. Adjust filters."); st.stop()
@@ -111,22 +109,19 @@ analytics_df = analytics_df_base.copy()
 if selected_condition_filter_pop != "All Conditions":
     analytics_df = analytics_df[analytics_df['condition'] == selected_condition_filter_pop]
 
-zones_list_pop = ["All Zones"] + sorted(analytics_df_base['zone_id'].dropna().unique().tolist()) # Use base for full zone list
+zones_list_pop = ["All Zones"] + sorted(analytics_df_base['zone_id'].dropna().unique().tolist())
 selected_zone_filter_pop = st.sidebar.selectbox("Filter by Zone (Optional):", options=zones_list_pop, index=0, key="pop_zone_filter_v2")
 if selected_zone_filter_pop != "All Zones":
     analytics_df = analytics_df[analytics_df['zone_id'] == selected_zone_filter_pop]
 
-if analytics_df.empty and selected_condition_filter_pop != "All Conditions": # If specific filter yielded no data
-    st.warning(f"No data for '{selected_condition_filter_pop}' in zone '{selected_zone_filter_pop}' for the selected period. Try adjusting filters.")
-    # To avoid errors in tabs, use the date-filtered (but not condition/zone filtered) data as a fallback if specific selection is empty.
-    # This allows tabs to show "no data for selected condition" messages rather than erroring on empty analytics_df.
-    analytics_df_display = analytics_df_base.copy() 
-    if selected_zone_filter_pop != "All Zones": # Still respect zone filter if one was chosen for fallback
+analytics_df_display = analytics_df.copy() # What's actually used by tabs
+if analytics_df.empty :
+    st.warning(f"No data for '{selected_condition_filter_pop}' in zone '{selected_zone_filter_pop}' for the selected period. Displaying broader data for the period if available, or adjust filters.")
+    analytics_df_display = analytics_df_base.copy() # Fallback to only date-filtered
+    if selected_zone_filter_pop != "All Zones": # Respect zone if only condition filter resulted in empty
          analytics_df_display = analytics_df_display[analytics_df_display['zone_id'] == selected_zone_filter_pop]
-    st.caption(f"Showing overall data for zone '{selected_zone_filter_pop}' and selected period due to no specific results for '{selected_condition_filter_pop}'.")
-else:
-    analytics_df_display = analytics_df.copy() # Use the fully filtered data
-
+    if analytics_df_display.empty: # If even that fallback is empty, use full base (unlikely if first check passed)
+         analytics_df_display = health_df_pop.copy() 
 
 # --- Tabbed Interface ---
 tab_epi_overview, tab_demographics_sdoh, tab_clinical_dx, tab_systems_equity = st.tabs([
@@ -135,15 +130,19 @@ tab_epi_overview, tab_demographics_sdoh, tab_clinical_dx, tab_systems_equity = s
 
 with tab_epi_overview:
     st.header(f"Epidemiological Overview for '{selected_condition_filter_pop}' in '{selected_zone_filter_pop}'")
-    if analytics_df_display.empty: # Use analytics_df_display which reflects selected filters
+    if analytics_df_display.empty:
         st.info("No data available for epidemiological overview with current filters.")
     else:
         epi_overview_cols = st.columns(2)
         with epi_overview_cols[0]:
             st.subheader("Condition Case Counts")
-            condition_counts_epi = analytics_df_display.groupby('condition')['patient_id'].nunique().nlargest(10).reset_index(name='unique_patients')
-            if not condition_counts_epi.empty: st.plotly_chart(plot_bar_chart(condition_counts_epi, 'condition', 'unique_patients', "Top 10 Conditions by Unique Patient Count", height=400, orientation='h', y_is_count=True, text_format='d'), use_container_width=True)
-            else: st.caption("No condition data to display counts.")
+            if 'condition' in analytics_df_display.columns and analytics_df_display['condition'].notna().any():
+                condition_counts_epi = analytics_df_display.groupby('condition')['patient_id'].nunique().nlargest(10).reset_index(name='unique_patients')
+                if not condition_counts_epi.empty:
+                    condition_counts_epi['condition'] = condition_counts_epi['condition'].astype(str)
+                    st.plotly_chart(plot_bar_chart(condition_counts_epi, x_col='condition', y_col='unique_patients', title="Top 10 Conditions by Unique Patient Count", height=400, orientation='h', y_is_count=True, text_format='d'), use_container_width=True)
+                else: st.caption("No condition data to display counts after aggregation.")
+            else: st.caption("Condition column missing or empty.")
         
         with epi_overview_cols[1]:
             st.subheader("AI Risk Score Distribution")
@@ -156,33 +155,35 @@ with tab_epi_overview:
         st.subheader(f"Incidence Trend for Top Conditions (Weekly New Cases)")
         if not analytics_df_display.empty and 'condition' in analytics_df_display.columns and 'patient_id' in analytics_df_display.columns and 'encounter_date' in analytics_df_display.columns:
             top_n_for_trend_plot_epi = 3 
-            df_for_top_cond_trend = analytics_df_display.copy() # Use the filtered display DF
+            df_for_top_cond_trend_epi = analytics_df_display.copy()
 
             if selected_condition_filter_pop != "All Conditions":
                 top_conditions_for_trend_epi = [selected_condition_filter_pop]
-                if selected_condition_filter_pop not in df_for_top_cond_trend['condition'].unique(): top_conditions_for_trend_epi = []
-            else: top_conditions_for_trend_epi = df_for_top_cond_trend['condition'].value_counts().nlargest(top_n_for_trend_plot_epi).index.tolist()
+                if selected_condition_filter_pop not in df_for_top_cond_trend_epi['condition'].unique(): top_conditions_for_trend_epi = []
+            else: top_conditions_for_trend_epi = df_for_top_cond_trend_epi['condition'].value_counts().nlargest(top_n_for_trend_plot_epi).index.tolist()
 
             if top_conditions_for_trend_epi:
                 num_charts_to_plot_epi = len(top_conditions_for_trend_epi)
-                inc_trend_cols_epi = st.columns(num_charts_to_plot_epi if num_charts_to_plot_epi > 0 else 1) # Ensure at least 1 col
+                inc_trend_cols_epi = st.columns(num_charts_to_plot_epi if num_charts_to_plot_epi > 0 else 1)
                 
-                df_for_inc_trend_calc = df_for_top_cond_trend.copy()
-                if not pd.api.types.is_datetime64_ns_dtype(df_for_inc_trend_calc['encounter_date']): df_for_inc_trend_calc['encounter_date'] = pd.to_datetime(df_for_inc_trend_calc['encounter_date'], errors='coerce')
-                df_for_inc_trend_calc.dropna(subset=['encounter_date'], inplace=True)
-                df_for_inc_trend_calc.sort_values('encounter_date', inplace=True)
-                df_for_inc_trend_calc['is_first_in_period'] = ~df_for_inc_trend_calc.duplicated(subset=['patient_id', 'condition'], keep='first')
-                new_cases_df_trend_epi = df_for_inc_trend_calc[df_for_inc_trend_calc['is_first_in_period']]
+                df_for_inc_trend_calc_epi = df_for_top_cond_trend_epi.copy()
+                if not pd.api.types.is_datetime64_ns_dtype(df_for_inc_trend_calc_epi['encounter_date']): df_for_inc_trend_calc_epi['encounter_date'] = pd.to_datetime(df_for_inc_trend_calc_epi['encounter_date'], errors='coerce')
+                df_for_inc_trend_calc_epi.dropna(subset=['encounter_date'], inplace=True)
+                if not df_for_inc_trend_calc_epi.empty : # Check after dropna
+                    df_for_inc_trend_calc_epi.sort_values('encounter_date', inplace=True)
+                    df_for_inc_trend_calc_epi['is_first_in_period'] = ~df_for_inc_trend_calc_epi.duplicated(subset=['patient_id', 'condition'], keep='first')
+                    new_cases_df_trend_epi = df_for_inc_trend_calc_epi[df_for_inc_trend_calc_epi['is_first_in_period']]
 
-                for i, cond_name_epi in enumerate(top_conditions_for_trend_epi):
-                    current_col_epi = inc_trend_cols_epi[i % num_charts_to_plot_epi] # Use modulo if fewer cols than charts
-                    condition_trend_data_epi = new_cases_df_trend_epi[new_cases_df_trend_epi['condition'] == cond_name_epi]
-                    with current_col_epi:
-                        if not condition_trend_data_epi.empty:
-                            weekly_new_cases_trend_epi = get_trend_data(condition_trend_data_epi, 'patient_id', date_col='encounter_date', period='W-Mon', agg_func='count')
-                            if not weekly_new_cases_trend_epi.empty: st.plotly_chart(plot_annotated_line_chart(weekly_new_cases_trend_epi, f"Weekly New {cond_name_epi} Cases", y_axis_title="New Cases", height=300, date_format="%U, %Y (Wk)", y_is_count=True), use_container_width=True)
-                            else: st.caption(f"No trend data to plot for {cond_name_epi}.")
-                        else: st.caption(f"No new cases data for {cond_name_epi} in this period.")
+                    for i, cond_name_epi in enumerate(top_conditions_for_trend_epi):
+                        current_col_epi = inc_trend_cols_epi[i % num_charts_to_plot_epi] # Safe indexing
+                        condition_trend_data_epi = new_cases_df_trend_epi[new_cases_df_trend_epi['condition'] == cond_name_epi]
+                        with current_col_epi:
+                            if not condition_trend_data_epi.empty:
+                                weekly_new_cases_trend_epi = get_trend_data(condition_trend_data_epi, 'patient_id', date_col='encounter_date', period='W-Mon', agg_func='count')
+                                if not weekly_new_cases_trend_epi.empty: st.plotly_chart(plot_annotated_line_chart(weekly_new_cases_trend_epi, f"Weekly New {cond_name_epi} Cases", y_axis_title="New Cases", height=300, date_format="%U, %Y (Wk)", y_is_count=True), use_container_width=True)
+                                else: st.caption(f"No trend data to plot for {cond_name_epi}.")
+                            else: st.caption(f"No new cases data for {cond_name_epi} in this period.")
+                else: st.caption("Not enough valid date data for incidence calculation.") # After date cleaning for trend
             else: 
                 if selected_condition_filter_pop != "All Conditions": st.caption(f"No data for '{selected_condition_filter_pop}' for incidence trend.")
                 else: st.caption("No top conditions for incidence trends with current filters.")
@@ -217,9 +218,16 @@ with tab_demographics_sdoh:
             patients_per_zone_filtered_sdoh = analytics_df_display.groupby('zone_id')['patient_id'].nunique().reset_index(name='patients_in_filtered_period')
             avg_risk_per_zone_filtered_sdoh = analytics_df_display.groupby('zone_id')['ai_risk_score'].mean().reset_index(name='avg_risk_in_filtered_period')
             
-            zone_analysis_df_sdoh = zone_attr_df_pop.merge(patients_per_zone_filtered_sdoh, on='zone_id', how='left')
+            zone_analysis_df_sdoh = zone_attr_df_pop.copy() # Start with all zone attributes
+            # Ensure zone_id dtypes match for merge
+            zone_analysis_df_sdoh['zone_id'] = zone_analysis_df_sdoh['zone_id'].astype(str)
+            patients_per_zone_filtered_sdoh['zone_id'] = patients_per_zone_filtered_sdoh['zone_id'].astype(str)
+            avg_risk_per_zone_filtered_sdoh['zone_id'] = avg_risk_per_zone_filtered_sdoh['zone_id'].astype(str)
+
+            zone_analysis_df_sdoh = zone_analysis_df_sdoh.merge(patients_per_zone_filtered_sdoh, on='zone_id', how='left')
             zone_analysis_df_sdoh = zone_analysis_df_sdoh.merge(avg_risk_per_zone_filtered_sdoh, on='zone_id', how='left')
             zone_analysis_df_sdoh['patients_in_filtered_period'].fillna(0, inplace=True)
+            # avg_risk_in_filtered_period can remain NaN if no patients from that zone in filtered data
             
             if not zone_analysis_df_sdoh.empty:
                 sdoh_context_cols_display = st.columns(2)
@@ -228,7 +236,7 @@ with tab_demographics_sdoh:
                          st.plotly_chart(plot_bar_chart(zone_analysis_df_sdoh.sort_values('socio_economic_index'), 'name', 'socio_economic_index', 'Socio-Economic Index by Zone', height=350, y_axis_title="SES Index", text_format=".2f"), use_container_width=True)
                 with sdoh_context_cols_display[1]:
                     if 'avg_travel_time_clinic_min' in zone_analysis_df_sdoh.columns and zone_analysis_df_sdoh['avg_travel_time_clinic_min'].notna().any():
-                        st.plotly_chart(plot_bar_chart(zone_analysis_df_sdoh.sort_values('avg_travel_time_clinic_min'), 'name', 'avg_travel_time_clinic_min', 'Avg. Travel Time to Clinic by Zone', height=350, y_axis_title="Minutes", y_is_count=False, text_format=".0f"), use_container_width=True) # Travel time is not strictly a count
+                        st.plotly_chart(plot_bar_chart(zone_analysis_df_sdoh.sort_values('avg_travel_time_clinic_min'), 'name', 'avg_travel_time_clinic_min', 'Avg. Travel Time to Clinic by Zone', height=350, y_axis_title="Minutes", y_is_count=False, text_format=".0f"), use_container_width=True)
             else: st.info("No zone-level data to display after merging.")
         else: st.info("Zone attribute data or zone_id in health records unavailable for SDOH context.")
 
@@ -238,12 +246,13 @@ with tab_clinical_dx:
     else:
         clin_dx_cols_page = st.columns(2)
         with clin_dx_cols_page[0]:
-            st.subheader("Top Presenting Symptoms")
+            st.subheader("Top Presenting Symptoms (from encounters)")
             if 'patient_reported_symptoms' in analytics_df_display.columns and analytics_df_display['patient_reported_symptoms'].notna().any():
-                symptoms_exploded_dx_page = analytics_df_display['patient_reported_symptoms'].str.split(';').explode().str.strip().replace('',np.nan).dropna()
-                symptom_counts_dx_page = symptoms_exploded_dx_page.value_counts().nlargest(10).reset_index(); symptom_counts_dx_page.columns = ['Symptom', 'Frequency']
-                if not symptom_counts_dx_page.empty: st.plotly_chart(plot_bar_chart(symptom_counts_dx_page, 'Symptom', 'Frequency', "Top 10 Reported Symptoms", height=400, orientation='h', y_is_count=True, text_format='d'), use_container_width=True)
-                else: st.caption("No distinct symptom data.")
+                symptoms_exploded_dx_page = analytics_df_display['patient_reported_symptoms'].str.split(';').explode().str.strip().replace(['', 'Unknown', 'N/A'],np.nan).dropna()
+                if not symptoms_exploded_dx_page.empty:
+                    symptom_counts_dx_page = symptoms_exploded_dx_page.value_counts().nlargest(10).reset_index(); symptom_counts_dx_page.columns = ['Symptom', 'Frequency']
+                    st.plotly_chart(plot_bar_chart(symptom_counts_dx_page, 'Symptom', 'Frequency', "Top 10 Reported Symptoms", height=400, orientation='h', y_is_count=True, text_format='d'), use_container_width=True)
+                else: st.caption("No distinct symptoms reported.")
             else: st.caption("Patient reported symptoms data unavailable.")
         with clin_dx_cols_page[1]:
             st.subheader("Test Result Distribution (Top 5 Tests by Volume)")
@@ -258,19 +267,19 @@ with tab_clinical_dx:
             else: st.caption("Test type or result data unavailable.")
         
         st.markdown("---"); st.subheader("Overall Test Positivity Rate Trend (e.g., Malaria RDT)")
-        mal_rdt_key_pop = "RDT-Malaria" # This assumes data uses 'RDT-Malaria' as test_type
-        mal_rdt_disp_pop = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(mal_rdt_key_pop,{}).get("display_name", mal_rdt_key_pop)
-        mal_df_pop_trend = analytics_df_display[(analytics_df_display['test_type'] == mal_rdt_key_pop) & (~analytics_df_display['test_result'].isin(['Pending','Rejected Sample','Unknown']))].copy()
-        if not mal_df_pop_trend.empty:
-            mal_df_pop_trend.loc[:,'is_positive'] = mal_df_pop_trend['test_result'] == 'Positive'
-            if not pd.api.types.is_datetime64_ns_dtype(mal_df_pop_trend['encounter_date']): mal_df_pop_trend.loc[:,'encounter_date'] = pd.to_datetime(mal_df_pop_trend['encounter_date'], errors='coerce')
-            mal_df_pop_trend.dropna(subset=['encounter_date'], inplace=True)
-            if not mal_df_pop_trend.empty : # Check again after dropna
-                weekly_pos_rate_pop_trend = get_trend_data(mal_df_pop_trend, 'is_positive', date_col='encounter_date', period='W-Mon', agg_func='mean') * 100
-                if not weekly_pos_rate_pop_trend.empty: st.plotly_chart(plot_annotated_line_chart(weekly_pos_rate_pop_trend, f"Weekly {mal_rdt_disp_pop} Positivity Rate", y_axis_title="Positivity (%)", height=350, target_line=app_config.TARGET_MALARIA_POSITIVITY_RATE), use_container_width=True)
-                else: st.caption(f"No data for {mal_rdt_disp_pop} positivity trend.")
-            else: st.caption(f"No valid date data for {mal_rdt_disp_pop} positivity trend.")
-        else: st.caption(f"No {mal_rdt_disp_pop} test data for positivity trend.")
+        mal_rdt_key_pop_trend = "RDT-Malaria"
+        mal_rdt_disp_pop_trend = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(mal_rdt_key_pop_trend,{}).get("display_name", mal_rdt_key_pop_trend)
+        mal_df_pop_trend_source = analytics_df_display[(analytics_df_display['test_type'] == mal_rdt_key_pop_trend) & (~analytics_df_display['test_result'].isin(['Pending','Rejected Sample','Unknown']))].copy()
+        if not mal_df_pop_trend_source.empty:
+            mal_df_pop_trend_source.loc[:,'is_positive'] = mal_df_pop_trend_source['test_result'] == 'Positive'
+            if not pd.api.types.is_datetime64_ns_dtype(mal_df_pop_trend_source['encounter_date']): mal_df_pop_trend_source.loc[:,'encounter_date'] = pd.to_datetime(mal_df_pop_trend_source['encounter_date'], errors='coerce')
+            mal_df_pop_trend_source.dropna(subset=['encounter_date'], inplace=True)
+            if not mal_df_pop_trend_source.empty :
+                weekly_pos_rate_pop_trend = get_trend_data(mal_df_pop_trend_source, 'is_positive', date_col='encounter_date', period='W-Mon', agg_func='mean') * 100
+                if not weekly_pos_rate_pop_trend.empty: st.plotly_chart(plot_annotated_line_chart(weekly_pos_rate_pop_trend, f"Weekly {mal_rdt_disp_pop_trend} Positivity Rate", y_axis_title="Positivity (%)", height=350, target_line=app_config.TARGET_MALARIA_POSITIVITY_RATE, y_is_count=False), use_container_width=True) # Pos rate is not a count
+                else: st.caption(f"No data for {mal_rdt_disp_pop_trend} positivity trend.")
+            else: st.caption(f"No valid date data for {mal_rdt_disp_pop_trend} positivity trend.")
+        else: st.caption(f"No {mal_rdt_disp_pop_trend} test data for positivity trend.")
 
 with tab_systems_equity:
     st.header("Health Systems Context & Equity Insights")
@@ -282,30 +291,28 @@ with tab_systems_equity:
             if 'clinic_id' in analytics_df_display.columns and analytics_df_display['clinic_id'].notna().any():
                 facility_load_sys_page = analytics_df_display['clinic_id'].value_counts().nlargest(10).reset_index(); facility_load_sys_page.columns = ['Clinic ID', 'Number of Encounters']
                 st.plotly_chart(plot_bar_chart(facility_load_sys_page, 'Clinic ID', 'Number of Encounters', "Top 10 Clinics by Encounter Volume", height=400, orientation='h', y_is_count=True, text_format='d'), use_container_width=True)
-            else: st.caption("Clinic ID data not available.")
         with sys_equity_cols_page[1]:
             st.subheader("Referral Status Distribution")
             if 'referral_status' in analytics_df_display.columns and analytics_df_display['referral_status'].notna().any():
-                ref_data_sys_page = analytics_df_display[analytics_df_display['referral_status'].str.lower() != "n/a"].copy() # case insensitive exclude
+                ref_data_sys_page = analytics_df_display[analytics_df_display['referral_status'].str.lower().isin(['pending', 'completed', 'initiated', 'missed appointment', 'declined'])].copy() # Filter for specific known statuses
                 if not ref_data_sys_page.empty:
                     ref_status_counts_sys_page = ref_data_sys_page['referral_status'].value_counts().reset_index(); ref_status_counts_sys_page.columns = ['Referral Status', 'Count']
                     st.plotly_chart(plot_donut_chart(ref_status_counts_sys_page, 'Referral Status', 'Count', "Distribution of Referral Statuses", height=400, values_are_counts=True), use_container_width=True)
-                else: st.caption("No active referral data for status distribution.")
+                else: st.caption("No active referral data for status distribution after filtering for known statuses.")
             else: st.caption("Referral status data unavailable.")
         
         st.markdown("---")
         st.subheader("AI Risk Score Distribution by Zone Socio-Economic Index")
         if 'zone_id' in analytics_df_display.columns and 'ai_risk_score' in analytics_df_display.columns and \
            not zone_attr_df_pop.empty and 'socio_economic_index' in zone_attr_df_pop.columns and \
-           'name' in zone_attr_df_pop.columns: # Zone name for hover
+           'name' in zone_attr_df_pop.columns:
             
             avg_risk_zone_equity_page = analytics_df_display.groupby('zone_id')['ai_risk_score'].mean().reset_index()
-            # Ensure zone_id dtypes match for merge (often string after processing)
-            zone_attr_df_pop_copy = zone_attr_df_pop.copy()
-            zone_attr_df_pop_copy['zone_id'] = zone_attr_df_pop_copy['zone_id'].astype(str)
+            zone_attr_df_pop_copy_equity = zone_attr_df_pop.copy()
+            zone_attr_df_pop_copy_equity['zone_id'] = zone_attr_df_pop_copy_equity['zone_id'].astype(str)
             avg_risk_zone_equity_page['zone_id'] = avg_risk_zone_equity_page['zone_id'].astype(str)
             
-            equity_df_plot_page = zone_attr_df_pop_copy.merge(avg_risk_zone_equity_page, on='zone_id', how='inner')
+            equity_df_plot_page = zone_attr_df_pop_copy_equity.merge(avg_risk_zone_equity_page, on='zone_id', how='inner')
             equity_df_plot_page.dropna(subset=['ai_risk_score', 'socio_economic_index'], inplace=True)
 
             if not equity_df_plot_page.empty:
@@ -313,12 +320,12 @@ with tab_systems_equity:
                                        text='name', size='population' if 'population' in equity_df_plot_page.columns else None, 
                                        color='ai_risk_score',
                                        title="Avg. Patient AI Risk vs. Zone Socio-Economic Index",
-                                       labels={'socio_economic_index': "Socio-Economic Index (Zone)", 'ai_risk_score': "Avg. Patient AI Risk Score in Zone"},
+                                       labels={'socio_economic_index': "Socio-Economic Index (Zone)", 'ai_risk_score': "Avg. Patient AI Risk Score in Zone (Period)"},
                                        height=450, color_continuous_scale="Reds", hover_name='name')
                 fig_equity_risk_ses_page.update_traces(textposition='top center')
                 st.plotly_chart(fig_equity_risk_ses_page, use_container_width=True)
             else: st.caption("Not enough data to plot AI Risk vs Zone SES.")
-        else: st.caption("Required data for AI Risk vs. Zone SES analysis not fully available (needs patient AI risk & zone_id, and zone attributes with SES, name, population).")
+        else: st.caption("Required data for AI Risk vs. Zone SES analysis not fully available.")
 
 # --- Footer ---
 st.markdown("---"); st.caption(app_config.APP_FOOTER)
