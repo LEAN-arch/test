@@ -33,66 +33,84 @@ try:
 except Exception as e_token:
     logger.error(f"Error occurred while trying to set Mapbox token: {e_token}")
 
+# test/utils/ui_visualization_helpers.py
+# ... (other imports and MAPBOX_TOKEN_SET logic) ...
+
 def _get_theme_color(index: Any = 0, fallback_color: str = "#007bff", color_type: str = "general") -> str:
-    """Safely retrieves a color from various theme configurations or Plotly's default colorway."""
+    # ... (This function is likely okay, but let's ensure its fallback behavior)
     try:
         if color_type == "disease" and hasattr(app_config, 'DISEASE_COLORS') and app_config.DISEASE_COLORS:
             if isinstance(index, str) and index in app_config.DISEASE_COLORS: return app_config.DISEASE_COLORS[index]
         if color_type == "risk_status" and hasattr(app_config, 'RISK_STATUS_COLORS') and app_config.RISK_STATUS_COLORS:
             if isinstance(index, str) and index in app_config.RISK_STATUS_COLORS: return app_config.RISK_STATUS_COLORS[index]
-
-        # Try to get colorway from the active Plotly template (set by set_custom_plotly_theme)
-        active_template = pio.templates.get(pio.templates.default, None) if pio.templates.default else None
-        if active_template and hasattr(active_template, 'layout') and hasattr(active_template.layout, 'colorway') and active_template.layout.colorway:
-            colorway_to_use = active_template.layout.colorway
-        else: # Fallback to Plotly's default built-in if custom theme isn't fully set or lacks colorway
-            colorway_to_use = px.colors.qualitative.Plotly
-
-        if colorway_to_use: # Ensure colorway is not None or empty
-            num_idx = index if isinstance(index, int) else abs(hash(str(index))) % len(colorway_to_use)
-            return colorway_to_use[num_idx % len(colorway_to_use)]
+        
+        # Use pio.templates.default which should be correctly set by set_custom_plotly_theme
+        # Safely access the colorway from the default template
+        default_template_name = pio.templates.default
+        colorway = px.colors.qualitative.Plotly # Default fallback colorway
+        if default_template_name and default_template_name in pio.templates:
+            active_template_layout = pio.templates[default_template_name].layout
+            if hasattr(active_template_layout, 'colorway') and active_template_layout.colorway:
+                colorway = active_template_layout.colorway
+        
+        if colorway: # Ensure colorway is not None or empty
+            num_idx = index if isinstance(index, int) else abs(hash(str(index))) % len(colorway) # abs() for hash
+            return colorway[num_idx % len(colorway)]
     except Exception as e_color_get:
         logger.warning(f"Could not retrieve theme color for index/key '{index}', type '{color_type}': {e_color_get}. Using fallback: {fallback_color}")
     return fallback_color
 
+
 def set_custom_plotly_theme():
-    """Sets a custom Plotly theme ('custom_health_theme') as the default, combined with Plotly's base."""
     theme_font_family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"'
-    theme_primary_text_color = app_config.RISK_STATUS_COLORS.get("Neutral", "#343a40") # Use a config color for text
-    theme_grid_color = "#e9ecef"; theme_border_color = "#ced4da"
-    theme_paper_bg_color = "#f8f9fa" ; theme_plot_bg_color = "#FFFFFF" # White plot background
+    theme_primary_text_color = "#343a40"; theme_grid_color = "#e9ecef"; theme_border_color = "#ced4da"
+    theme_paper_bg_color = "#f8f9fa" ; theme_plot_bg_color = "#FFFFFF"
     
+    # Define the default colorway as a list
+    default_colorway_list = ['#007bff', '#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6f42c1', '#fd7e14', '#20c997', '#6610f2', '#e83e8c']
+
+    # Try to use values from app_config.DISEASE_COLORS for a more thematic colorway,
+    # but ensure it's a list and has fallbacks if not enough colors.
+    configured_colorway = []
+    if hasattr(app_config, 'DISEASE_COLORS') and isinstance(app_config.DISEASE_COLORS, dict):
+        # Take values, but ensure enough colors, fallback to default if too few
+        configured_colorway = list(app_config.DISEASE_COLORS.values())
+        if len(configured_colorway) < 5: # Arbitrary threshold for "enough" colors
+            configured_colorway.extend(default_colorway_list[len(configured_colorway):]) # Pad with defaults
+        if not configured_colorway: # If DISEASE_COLORS was empty
+            configured_colorway = default_colorway_list
+    else:
+        configured_colorway = default_colorway_list
+
     layout_settings = {
         'font': dict(family=theme_font_family, size=12, color=theme_primary_text_color),
         'paper_bgcolor': theme_paper_bg_color,
         'plot_bgcolor': theme_plot_bg_color,
-        'colorway': app_config.DISEASE_COLORS.get("Other", None) or ['#007bff', '#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6f42c1', '#fd7e14', '#20c997', '#6610f2', '#e83e8c'], # Use configured colors or fallbacks
+        'colorway': configured_colorway, # CORRECTED: Ensure this is always a list
         'xaxis': dict(gridcolor=theme_grid_color, linecolor=theme_border_color, zerolinecolor=theme_grid_color, zerolinewidth=1, title_font_size=13, tickfont_size=11, automargin=True, title_standoff=10),
         'yaxis': dict(gridcolor=theme_grid_color, linecolor=theme_border_color, zerolinecolor=theme_grid_color, zerolinewidth=1, title_font_size=13, tickfont_size=11, automargin=True, title_standoff=10),
         'title': dict(
-            font=dict(family=theme_font_family, size=18, color=app_config.RISK_STATUS_COLORS.get("High", "#1A2557")), # Title color from config
-            x=0.05, xanchor='left', # Adjusted x slightly for better look
-            y=0.95, yanchor='top', 
-            pad=dict(t=30, b=10, l=5) # Increased top/bottom padding
+            font=dict(family=theme_font_family, size=18, color="#1A2557"), # Removed 'weight'
+            x=0.05, xanchor='left', y=0.95, yanchor='top', pad=dict(t=30, b=15, l=5) # Adjusted padding
         ),
-        'legend': dict(bgcolor='rgba(255,255,255,0.85)', bordercolor=theme_border_color, borderwidth=1, orientation='h', yanchor='bottom', y=1.01, xanchor='right', x=1, font_size=11),
-        'margin': dict(l=70, r=30, t=100, b=70) # Increased top margin for title space
+        'legend': dict(bgcolor='rgba(255,255,255,0.85)', bordercolor=theme_border_color, borderwidth=1, orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1, font_size=11),
+        'margin': dict(l=70, r=30, t=100, b=70) # Increased top margin for title
     }
     
     mapbox_style_to_use = app_config.MAPBOX_STYLE
     if not MAPBOX_TOKEN_SET and mapbox_style_to_use not in ["open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain", "stamen-toner", "stamen-watercolor"]:
-        mapbox_style_to_use = "open-street-map" # Default if token needed but not set
+        mapbox_style_to_use = "open-street-map"
     layout_settings['mapbox'] = dict(style=mapbox_style_to_use, center=dict(lat=app_config.MAP_DEFAULT_CENTER_LAT, lon=app_config.MAP_DEFAULT_CENTER_LON), zoom=app_config.MAP_DEFAULT_ZOOM)
     
-    # Create a new template object and update it with our settings
-    custom_template_obj = go.layout.Template()
-    custom_template_obj.layout = go.Layout(**layout_settings) # Pass dict to Layout constructor
-
+    custom_template_obj = go.layout.Template(layout=go.Layout(**layout_settings))
     pio.templates["custom_health_theme"] = custom_template_obj
-    pio.templates.default = "plotly+custom_health_theme" # Combine with plotly base for anything not specified
-    logger.info("Custom Plotly theme 'custom_health_theme' (combined with plotly base) set as default.")
+    pio.templates.default = "plotly+custom_health_theme" 
+    logger.info("Custom Plotly theme 'custom_health_theme' set as default.")
 
-set_custom_plotly_theme() # Initialize theme upon module import
+# Ensure it's called on import - this applies the theme globally for subsequent plot generations.
+set_custom_plotly_theme()
+
+# ... (rest of ui_visualization_helpers.py as previously corrected for plot scales, etc.) ... # Initialize theme upon module import
 
 def render_kpi_card(title: str, value: str, icon: str, status: str = "neutral", delta: Optional[str] = None, delta_type: str = "neutral", help_text: Optional[str] = None, icon_is_html: bool = False):
     valid_statuses = {"high", "moderate", "low", "neutral", "good", "bad"}; valid_delta_types = {"positive", "negative", "neutral"}
