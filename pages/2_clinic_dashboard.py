@@ -4,22 +4,22 @@ import pandas as pd
 import os
 import logging
 from datetime import date
-import numpy as np # Imported for np.nan usage
+import numpy as np
 
 # Assuming flat import structure for this 'test' setup
 from config import app_config
 from utils.core_data_processing import (
     load_health_records,
     load_iot_clinic_environment_data,
-    get_clinic_summary, # This now returns detailed test stats
+    get_clinic_summary,
     get_clinic_environmental_summary,
     get_trend_data,
-    get_supply_forecast_data, # Linear forecast from core
+    get_supply_forecast_data,
     get_patient_alerts_for_clinic
 )
 from utils.ai_analytics_engine import (
-    apply_ai_models, # To get AI scores
-    SupplyForecastingModel # For advanced AI-based supply forecast (optional to use)
+    apply_ai_models,
+    SupplyForecastingModel
 )
 from utils.ui_visualization_helpers import (
     render_kpi_card,
@@ -37,7 +37,7 @@ st.set_page_config(
 logger = logging.getLogger(__name__)
 
 @st.cache_resource
-def load_css_clinic(): # Renamed for clarity
+def load_css_clinic():
     css_path = app_config.STYLE_CSS_PATH
     if os.path.exists(css_path):
         with open(css_path) as f:
@@ -83,7 +83,7 @@ st.title("🏥 Clinic Operations & Environmental Dashboard")
 st.markdown("**Monitoring Service Efficiency, Quality of Care, Resource Management, and Facility Environment**")
 st.markdown("---")
 
-# --- Sidebar Filters & Date Range Setup ---
+# --- Sidebar Filters & Date Range Setup (Corrected) ---
 if os.path.exists(app_config.APP_LOGO):
     st.sidebar.image(app_config.APP_LOGO, use_column_width='auto')
     st.sidebar.markdown("---")
@@ -92,14 +92,31 @@ else:
 
 st.sidebar.header("🗓️ Clinic Filters")
 
-all_dates_clinic = []
+all_potential_timestamps_clinic = []
 if health_data_available and 'encounter_date' in health_df_clinic_main.columns:
-    all_dates_clinic.extend(pd.to_datetime(health_df_clinic_main['encounter_date'], errors='coerce').dropna())
-if iot_data_available and 'timestamp' in iot_df_clinic_main.columns:
-    all_dates_clinic.extend(pd.to_datetime(iot_df_clinic_main['timestamp'], errors='coerce').dropna())
+    encounter_dates_ts = pd.to_datetime(health_df_clinic_main['encounter_date'], errors='coerce')
+    if pd.api.types.is_datetime64tz_dtype(encounter_dates_ts):
+        encounter_dates_ts = encounter_dates_ts.dt.tz_localize(None)
+    all_potential_timestamps_clinic.extend(encounter_dates_ts.dropna())
 
-min_date_data_clinic = min(all_dates_clinic).date() if all_dates_clinic else date.today() - pd.Timedelta(days=app_config.DEFAULT_DATE_RANGE_DAYS_TREND * 3)
-max_date_data_clinic = max(all_dates_clinic).date() if all_dates_clinic else date.today()
+if iot_data_available and 'timestamp' in iot_df_clinic_main.columns:
+    iot_timestamps_ts = pd.to_datetime(iot_df_clinic_main['timestamp'], errors='coerce')
+    if pd.api.types.is_datetime64tz_dtype(iot_timestamps_ts):
+        iot_timestamps_ts = iot_timestamps_ts.dt.tz_localize(None)
+    all_potential_timestamps_clinic.extend(iot_timestamps_ts.dropna())
+
+all_valid_timestamps_clinic = [ts for ts in all_potential_timestamps_clinic if isinstance(ts, pd.Timestamp)]
+
+if all_valid_timestamps_clinic:
+    min_ts_data_clinic = min(all_valid_timestamps_clinic)
+    max_ts_data_clinic = max(all_valid_timestamps_clinic)
+    min_date_data_clinic = min_ts_data_clinic.date()
+    max_date_data_clinic = max_ts_data_clinic.date()
+    logger.info(f"Clinic date range from data: {min_date_data_clinic} to {max_date_data_clinic}")
+else:
+    logger.warning("No valid dates found in health or IoT data for Clinic dashboard. Using default fallback date range.")
+    min_date_data_clinic = date.today() - pd.Timedelta(days=app_config.DEFAULT_DATE_RANGE_DAYS_TREND * 3)
+    max_date_data_clinic = date.today()
 
 if min_date_data_clinic > max_date_data_clinic:
     min_date_data_clinic = max_date_data_clinic
@@ -114,11 +131,11 @@ selected_start_date_cl, selected_end_date_cl = st.sidebar.date_input(
     value=[default_start_val_clinic, default_end_val_clinic],
     min_value=min_date_data_clinic,
     max_value=max_date_data_clinic,
-    key="clinic_dashboard_date_range_selector_v10",
+    key="clinic_dashboard_date_range_selector_v11",
     help="This date range applies to most charts and Key Performance Indicators (KPIs)."
 )
 
-# --- Filter dataframes based on selected date range (Corrected as per Error 1 fix) ---
+# --- Filter dataframes based on selected date range (Corrected) ---
 filtered_health_df_clinic = pd.DataFrame()
 filtered_iot_df_clinic = pd.DataFrame()
 
@@ -244,7 +261,6 @@ if not filtered_iot_df_clinic.empty:
                         help_text=f"Rooms with latest noise levels > {app_config.NOISE_LEVEL_ALERT_DB}dB.")
 st.markdown("---")
 
-# --- Tabs for Detailed Analysis ---
 tab_titles_clinic = ["🔬 Detailed Testing Insights", "💊 Supply Chain Management", "🧍 Patient Focus & Alerts", "🌿 Clinic Environment Details"]
 tab_tests, tab_supplies, tab_patients, tab_environment = st.tabs(tab_titles_clinic)
 
@@ -254,13 +270,12 @@ with tab_tests:
         st.info("No health data available for the selected period to display detailed testing insights.")
     else:
         detailed_test_stats_tab = clinic_service_kpis.get("test_summary_details", {})
-        
         if not detailed_test_stats_tab:
-             st.warning("No detailed test summary statistics could be generated. This might be due to missing test data or configuration issues in `app_config.KEY_TEST_TYPES_FOR_ANALYSIS`.")
+             st.warning("No detailed test summary statistics could be generated.")
         else:
             active_test_groups = [k for k,v in detailed_test_stats_tab.items() if v.get('total_conducted_conclusive',0) > 0 or v.get('pending_count',0) > 0 or v.get('rejected_count',0) > 0]
-            critical_test_exists = any(app_config.KEY_TEST_TYPES_FOR_ANALYSIS[original_key].get("critical") for original_key in app_config.KEY_TEST_TYPES_FOR_ANALYSIS)
-            
+            critical_test_exists = any(app_config.KEY_TEST_TYPES_FOR_ANALYSIS[original_key].get("critical") for original_key in app_config.KEY_TEST_TYPES_FOR_ANALYSIS if original_key in app_config.KEY_TEST_TYPES_FOR_ANALYSIS) # Check key exists first
+
             test_group_options_tab = []
             if critical_test_exists : test_group_options_tab.append("All Critical Tests Summary")
             test_group_options_tab.extend(sorted(active_test_groups))
@@ -309,15 +324,14 @@ with tab_tests:
                     original_key_for_selected = next((k for k,v_cfg in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if v_cfg.get("display_name") == selected_test_group_display), None)
                     
                     if original_key_for_selected:
-                        # For plots, use the original test_type names if they are grouped
                         actual_test_types_for_plot = app_config.KEY_TEST_TYPES_FOR_ANALYSIS[original_key_for_selected].get("types_in_group", [original_key_for_selected])
-                        if isinstance(actual_test_types_for_plot, str): actual_test_types_for_plot = [actual_test_types_for_plot] # Ensure list
+                        if isinstance(actual_test_types_for_plot, str): actual_test_types_for_plot = [actual_test_types_for_plot]
                         target_tat_for_plot = app_config.KEY_TEST_TYPES_FOR_ANALYSIS[original_key_for_selected].get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS)
 
                         with plot_cols_test_detail_tab[0]:
                             st.markdown(f"**Daily Avg. TAT for {selected_test_group_display}**")
                             df_tat_plot_src = filtered_health_df_clinic[
-                                (filtered_health_df_clinic['test_type'].isin(actual_test_types_for_plot)) & # Use actual test type names for filtering data
+                                (filtered_health_df_clinic['test_type'].isin(actual_test_types_for_plot)) &
                                 (filtered_health_df_clinic['test_turnaround_days'].notna()) &
                                 (~filtered_health_df_clinic['test_result'].isin(['Pending','Unknown','Rejected Sample', 'Indeterminate']))
                             ].copy()
@@ -336,7 +350,6 @@ with tab_tests:
                                 pending_vol = get_trend_data(df_vol_plot_src[df_vol_plot_src['test_result'] == 'Pending'], 'patient_id', date_col='encounter_date', period='D', agg_func='count').rename("Pending")
                                 if not conducted_vol.empty or not pending_vol.empty:
                                     vol_trend_df = pd.concat([conducted_vol, pending_vol], axis=1).fillna(0).reset_index()
-                                    # Ensure correct date column name for melt
                                     date_col_melt = 'encounter_date' if 'encounter_date' in vol_trend_df.columns else 'date'
                                     vol_melt_df = vol_trend_df.melt(id_vars=date_col_melt, value_vars=['Conclusive', 'Pending'], var_name='Status', value_name='Count')
                                     st.plotly_chart(plot_bar_chart(vol_melt_df, x_col=date_col_melt, y_col='Count', color_col='Status', title=f"Daily Volume Trend", barmode='stack', height=app_config.COMPACT_PLOT_HEIGHT-20), use_container_width=True)
@@ -356,12 +369,10 @@ with tab_tests:
             overdue_df_clinic['days_pending_calc'] = (pd.Timestamp('today').normalize() - pd.to_datetime(overdue_df_clinic[date_col_for_pending_calc])).dt.days
             
             def get_specific_overdue_threshold(test_type_name_or_disp):
-                # Try direct match with key, then by display_name
                 test_config = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(test_type_name_or_disp)
                 if not test_config:
                     original_key = next((k for k,v_cfg in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items() if v_cfg.get("display_name") == test_type_name_or_disp), None)
                     if original_key: test_config = app_config.KEY_TEST_TYPES_FOR_ANALYSIS[original_key]
-
                 buffer_days = 2
                 if test_config: return test_config.get('target_tat_days', app_config.OVERDUE_PENDING_TEST_DAYS) + buffer_days
                 return app_config.OVERDUE_PENDING_TEST_DAYS + buffer_days
@@ -417,11 +428,16 @@ with tab_supplies:
                  st.info("No forecast data available for any supply items based on historical data.")
             else:
                 default_select_options = [item for item in key_drug_items_for_select if any(sub.lower() in str(item).lower() for sub in app_config.KEY_DRUG_SUBSTRINGS_SUPPLY)]
-                default_selection = default_select_options[0] if default_select_options else key_drug_items_for_select[0]
+                default_selection_idx = 0
+                if default_select_options:
+                    try:
+                        default_selection_idx = key_drug_items_for_select.index(default_select_options[0])
+                    except ValueError: # If default_select_options[0] is not in key_drug_items_for_select
+                        pass # Keep default_selection_idx as 0
 
                 selected_drug_for_forecast = st.selectbox(
                     "Select Item for Forecast Details:", key_drug_items_for_select,
-                    index=key_drug_items_for_select.index(default_selection) if default_selection in key_drug_items_for_select else 0,
+                    index=default_selection_idx,
                     key="clinic_supply_item_forecast_selector_v11",
                     help="View the forecasted days of supply remaining for the selected item."
                 )
@@ -433,7 +449,7 @@ with tab_supplies:
                         forecast_plot_title = (
                             f"Forecast: {selected_drug_for_forecast}<br>"
                             f"<sup_>Stock at Forecast Start: {current_info_from_forecast.get('current_stock',0):.0f} | "
-                            f"Base Daily Use (Hist.): {current_info_from_forecast.get('consumption_rate',0):.1f} | " # Use 'consumption_rate' for base
+                            f"Base Daily Use (Hist.): {current_info_from_forecast.get('consumption_rate',0):.1f} | "
                             f"Est. Stockout: {pd.to_datetime(current_info_from_forecast.get('estimated_stockout_date')).strftime('%d %b %Y') if pd.notna(current_info_from_forecast.get('estimated_stockout_date')) else 'N/A'}</sup>"
                         )
                         plot_data_series = item_specific_forecast_df.set_index('date')['forecast_days']
@@ -560,4 +576,3 @@ with tab_environment:
         else: st.caption("Essential IoT columns (timestamp, clinic_id, room_name) missing for detailed room view.")
     elif iot_data_available:
          st.info("No clinic environmental IoT data found for the selected period.")
-    # If iot_data_available is False, initial info message covers it.
