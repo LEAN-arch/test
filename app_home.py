@@ -100,13 +100,15 @@ with st.expander("🗺️ **DHO Dashboard** - Strategic population health oversi
     """)
     if st.button("Go to District Dashboard", key="nav_dho_home_v7", type="primary"): st.switch_page("pages/3_district_dashboard.py")
 
-with st.expander("📊 **Population Analytics Dashboard** - Deep-dive epidemiological & systems analysis.", expanded=True):
+with st.expander("📊 **Population Dashboard** - Deep-dive epidemiological & systems analysis.", expanded=True): # << RENAMED HERE
     st.markdown("""
-    - **Focus:** Comprehensive analysis of demographic patterns, SDOH, clinical/diagnostic trends, health system performance, and equity insights.
-    - **Key Features:** Stratified disease burden, AI risk by demographics/SDOH, test positivity trends, comorbidity analysis, referral overviews.
-    - **Objective:** Offer macro-level analytical tools for epidemiologists, program managers, and policymakers.
+    - **Focus:** Comprehensive analysis of demographic patterns, social determinants of health (SDOH), clinical and diagnostic trends, health system performance, and equity considerations across the entire population dataset.
+    - **Key Features:** Stratified views of disease burden, AI risk score distributions by demographics/SDOH, aggregated test positivity trends, comorbidity analysis, and referral pathway overviews.
+    - **Objective:** Offer a macro-level analytical tool for epidemiologists, program managers, and policymakers to understand population health dynamics and identify areas for strategic focus and research.
     """)
-    if st.button("Go to Population Analytics", key="nav_pop_analytics_home_v2", type="primary"): st.switch_page("pages/4_population_analytics_dashboard.py")
+    if st.button("Go to Population Dashboard", key="nav_pop_dashboard_home_v1", type="primary"): # << RENAMED BUTTON TEXT AND KEY
+        st.switch_page("pages/4_population_analytics_dashboard.py") # Filename itself remains the same
+
 st.markdown("---")
 
 st.subheader("Platform Capabilities at a Glance")
