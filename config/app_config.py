@@ -2,20 +2,22 @@
 import os
 import pandas as pd
 
-# Base directory of the application
+# Base directory calculation: Assumes this config file is in 'test/config/'
+# So, os.path.dirname(__file__) is 'test/config/'
+# os.path.dirname(os.path.dirname(__file__)) is 'test/' which is our project root here.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Data sources directory
+# Data sources directory relative to BASE_DIR (which is 'test/')
 DATA_SOURCES_DIR = os.path.join(BASE_DIR, "data_sources")
 HEALTH_RECORDS_CSV = os.path.join(DATA_SOURCES_DIR, "health_records_expanded.csv")
 ZONE_ATTRIBUTES_CSV = os.path.join(DATA_SOURCES_DIR, "zone_attributes.csv")
 ZONE_GEOMETRIES_GEOJSON = os.path.join(DATA_SOURCES_DIR, "zone_geometries.geojson")
 IOT_CLINIC_ENVIRONMENT_CSV = os.path.join(DATA_SOURCES_DIR, "iot_clinic_environment.csv")
 
-# Assets directory
+# Assets directory relative to BASE_DIR
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 STYLE_CSS_PATH = os.path.join(ASSETS_DIR, "style.css")
-APP_LOGO = os.path.join(ASSETS_DIR, "DNA-DxBrand.png")
+APP_LOGO = os.path.join(ASSETS_DIR, "DNA-DxBrand.png") # Make sure this image exists or use placeholder
 
 # App Settings
 APP_TITLE = "Community Health Intelligence Hub"
@@ -59,16 +61,16 @@ KEY_TEST_TYPES_FOR_ANALYSIS = {
     "Hemoglobin Test": {"disease_group": "Anemia", "target_tat_days": 0.25, "critical": False, "display_name": "Hemoglobin Test"},
     "Chest X-Ray": {"disease_group": "TB/Pneumonia", "target_tat_days": 1, "critical": False, "display_name": "Chest X-Ray"},
     "CD4 Count": {"disease_group": "HIV", "target_tat_days": 3, "critical": False, "display_name": "CD4 Count"},
-    "Follow-up TB": {"disease_group": "TB", "target_tat_days": 0, "critical": False, "display_name": "Follow-up TB"}, # e.g. clinical check, no lab TAT
-    "General Checkup": {"disease_group": "Wellness", "target_tat_days": 1, "critical": False, "display_name": "General Checkup"}, # Assuming some basic labs might take a day
+    "Follow-up TB": {"disease_group": "TB", "target_tat_days": 0, "critical": False, "display_name": "Follow-up TB"},
+    "General Checkup": {"disease_group": "Wellness", "target_tat_days": 1, "critical": False, "display_name": "General Checkup"},
     "Mental Health Screen": {"disease_group": "MentalHealth", "target_tat_days": 0.5, "critical": False, "display_name": "Mental Health Screen"},
     "Random Blood Sugar": {"disease_group": "Diabetes", "target_tat_days": 0.25, "critical": False, "display_name": "Random Blood Sugar"},
     "BP Check": {"disease_group": "Hypertension", "target_tat_days": 0, "critical": False, "display_name": "BP Check"},
 }
-CRITICAL_TESTS_LIST = [test for test, props in KEY_TEST_TYPES_FOR_ANALYSIS.items() if props.get("critical")]
+CRITICAL_TESTS_LIST = [test_key for test_key, props in KEY_TEST_TYPES_FOR_ANALYSIS.items() if props.get("critical")] # Use keys
 TARGET_OVERALL_TESTS_MEETING_TAT_PCT = 85
 TARGET_SAMPLE_REJECTION_RATE_PCT = 5
-OVERDUE_PENDING_TEST_DAYS = 7 # General default
+OVERDUE_PENDING_TEST_DAYS = 7 # General fallback if test-specific TAT isn't found or not applicable
 
 KEY_CONDITIONS_FOR_TRENDS = ['TB', 'Malaria', 'HIV-Positive', 'Pneumonia', 'STI-Syphilis', 'STI-Gonorrhea', 'Anemia', 'Dengue', 'Hypertension', 'Diabetes', 'Wellness Visit', 'Anxiety', 'New Patient']
 KEY_DRUG_SUBSTRINGS_SUPPLY = ['TB-Regimen', 'ACT', 'ARV-Regimen', 'Penicillin', 'Ceftriaxone', 'Iron-Folate', 'Amoxicillin', 'Metformin', 'Amlodipine', 'Insulin', 'Co-amoxiclav', 'Calcium Supplement', 'Multivitamins', 'Iron Supplement']
