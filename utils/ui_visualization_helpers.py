@@ -27,31 +27,53 @@ except Exception as e_token: logger.error(f"Error setting Mapbox token: {e_token
 
 def _get_theme_color(index: Any = 0, fallback_color: str = "#007bff", color_type: str = "general") -> str:
     try:
-        if color_type == "disease" and hasattr(app_config, 'DISEASE_COLORS') and index in app_config.DISEASE_COLORS: return app_config.DISEASE_COLORS[index]
-        if color_type == "risk_status" and hasattr(app_config, 'RISK_STATUS_COLORS') and index in app_config.RISK_STATUS_COLORS: return app_config.RISK_STATUS_COLORS[index]
-        colorway = pio.templates.default.layout.get('colorway', px.colors.qualitative.Plotly)
-        return colorway[ (index if isinstance(index, int) else hash(str(index))) % len(colorway) ]
-    except Exception as e: logger.warning(f"Color retrieval error for '{index}'/'{color_type}': {e}. Using fallback."); return fallback_color
+        if color_type == "disease" and hasattr(app_config, 'DISEASE_COLORS') and app_config.DISEASE_COLORS: # Check hasattr for safety
+            if isinstance(index, str) and index in app_config.DISEASE_COLORS: return app_config.DISEASE_COLORS[index]
+        if color_type == "risk_status" and hasattr(app_config, 'RISK_STATUS_COLORS') and app_config.RISK_STATUS_COLORS: # Check hasattr
+            if isinstance(index, str) and index in app_config.RISK_STATUS_COLORS: return app_config.RISK_STATUS_COLORS[index]
+        
+        # Use pio.templates.default which should be correctly set by set_custom_plotly_theme
+        active_template_layout = pio.templates[pio.templates.default].layout if pio.templates.default else pio.templates['plotly'].layout
+        colorway = active_template_layout.colorway if hasattr(active_template_layout, 'colorway') and active_template_layout.colorway else px.colors.qualitative.Plotly
+
+        if colorway: # Ensure colorway is not None or empty
+            num_idx = index if isinstance(index, int) else hash(str(index)) % len(colorway)
+            return colorway[num_idx % len(colorway)]
+    except Exception as e_color_get:
+        logger.warning(f"Could not retrieve theme color for index/key '{index}', type '{color_type}': {e_color_get}. Using fallback: {fallback_color}")
+    return fallback_color
 
 def set_custom_plotly_theme():
     theme_font_family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"'
-    cfg = {'font': dict(family=theme_font_family, size=12, color="#343a40"),
-           'paper_bgcolor': "#f8f9fa", 'plot_bgcolor': "#FFFFFF",
-           'colorway': ['#007bff', '#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6f42c1', '#fd7e14', '#20c997', '#6610f2', '#e83e8c'],
-           'xaxis': dict(gridcolor="#e9ecef", linecolor="#ced4da", zerolinecolor="#e9ecef", title_font_size=13, tickfont_size=11, automargin=True, title_standoff=10),
-           'yaxis': dict(gridcolor="#e9ecef", linecolor="#ced4da", zerolinecolor="#e9ecef", title_font_size=13, tickfont_size=11, automargin=True, title_standoff=10),
-           'title': dict(font=dict(family=theme_font_family, size=18, color="#1A2557"), x=0.02, xanchor='left', y=0.97, yanchor='top', pad=dict(t=25,b=15)),
-           'legend': dict(bgcolor='rgba(255,255,255,0.9)', bordercolor="#ced4da", borderwidth=1, orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1, font_size=11),
-           'margin': dict(l=60, r=20, t=80, b=60)}
-    mb_style = app_config.MAPBOX_STYLE
-    if not MAPBOX_TOKEN_SET and mb_style not in ["open-street-map", "carto-positron", "carto-darkmatter"]: mb_style = "open-street-map"
-    cfg['mapbox'] = dict(style=mb_style, center=dict(lat=app_config.MAP_DEFAULT_CENTER_LAT, lon=app_config.MAP_DEFAULT_CENTER_LON), zoom=app_config.MAP_DEFAULT_ZOOM)
-    pio.templates["custom_health_theme"] = go.layout.Template(layout=go.Layout(**cfg)); pio.templates.default = "plotly+custom_health_theme"
-    logger.info("Custom Plotly theme 'custom_health_theme' set as default.")
+    theme_primary_text_color = "#343a40"; theme_grid_color = "#e9ecef"; theme_border_color = "#ced4da"
+    theme_paper_bg_color = "#f8f9fa" ; theme_plot_bg_color = "#FFFFFF"
+    
+    layout_config = {
+        'font': dict(family=theme_font_family, size=12, color=theme_primary_text_color),
+        'paper_bgcolor': theme_paper_bg_color,
+        'plot_bgcolor': theme_plot_bg_color,
+        'colorway': ['#007bff', '#28a745', '#ffc107', '#dc3545', '#17a2b8', '#6f42c1', '#fd7e14', '#20c997', '#6610f2', '#e83e8c'],
+        'xaxis': dict(gridcolor=theme_grid_color, linecolor=theme_border_color, zerolinecolor=theme_grid_color, zerolinewidth=1, title_font_size=13, tickfont_size=11, automargin=True, title_standoff=10),
+        'yaxis': dict(gridcolor=theme_grid_color, linecolor=theme_border_color, zerolinecolor=theme_grid_color, zerolinewidth=1, title_font_size=13, tickfont_size=11, automargin=True, title_standoff=10),
+        'title': dict(
+            font=dict(family=theme_font_family, size=18, color="#1A2557"), # Removed 'weight'
+            x=0.02, xanchor='left', y=0.97, yanchor='top', pad=dict(t=25, b=15)
+        ),
+        'legend': dict(bgcolor='rgba(255,255,255,0.9)', bordercolor=theme_border_color, borderwidth=1, orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1, font_size=11, traceorder='normal'),
+        'margin': dict(l=60, r=20, t=80, b=60) # Adjusted default margins
+    }
+    default_mapbox_style = app_config.MAPBOX_STYLE
+    if not MAPBOX_TOKEN_SET and app_config.MAPBOX_STYLE not in ["open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain", "stamen-toner", "stamen-watercolor"]:
+        default_mapbox_style = "open-street-map"
+    layout_config['mapbox'] = dict(style=default_mapbox_style, center=dict(lat=app_config.MAP_DEFAULT_CENTER_LAT, lon=app_config.MAP_DEFAULT_CENTER_LON), zoom=app_config.MAP_DEFAULT_ZOOM)
+    
+    custom_template = go.layout.Template(layout=go.Layout(**layout_config))
+    pio.templates["custom_health_theme"] = custom_template
+    pio.templates.default = "plotly+custom_health_theme" # Combine with plotly's base defaults
+    logger.info("Custom Plotly theme 'custom_health_theme' set as default, combined with 'plotly'.")
 set_custom_plotly_theme()
 
 def render_kpi_card(title: str, value: str, icon: str, status: str = "neutral", delta: Optional[str] = None, delta_type: str = "neutral", help_text: Optional[str] = None, icon_is_html: bool = False):
-    # Logic from previous complete version, assumed correct
     valid_statuses = {"high", "moderate", "low", "neutral", "good", "bad"}; valid_delta_types = {"positive", "negative", "neutral"}
     status_parts = status.lower().split(); base_status_class = next((s for s in status_parts if s in valid_statuses and s not in ["good", "bad"]), "neutral"); semantic_class = next((f"status-{s}" for s in status_parts if s in ["good", "bad"]), "")
     final_delta_type = delta_type.lower() if delta_type and delta_type.lower() in valid_delta_types else "neutral"; delta_str = str(delta) if delta is not None and str(delta).strip() else ""; delta_html = f'<p class="kpi-delta {final_delta_type}">{html.escape(delta_str)}</p>' if delta_str else ''
@@ -61,20 +83,16 @@ def render_kpi_card(title: str, value: str, icon: str, status: str = "neutral", 
     st.markdown(html_content, unsafe_allow_html=True)
 
 def render_traffic_light(message: str, status: str, details: str = ""):
-    # Logic from previous complete version
     valid_statuses_tl = {"high", "moderate", "low", "neutral"}; dot_status_class = "status-" + (status.lower() if status and status.lower() in map(str.lower, valid_statuses_tl) else "neutral")
     details_html = f'<span class="traffic-light-details">{html.escape(str(details))}</span>' if details and str(details).strip() else ""
     html_content = f'<div class="traffic-light-indicator"><span class="traffic-light-dot {dot_status_class}"></span><span class="traffic-light-message">{html.escape(str(message))}</span>{details_html}</div>'.replace("\n", "")
     st.markdown(html_content, unsafe_allow_html=True)
 
 def _create_empty_figure(title: str, height: Optional[int], message: str = "No data available to display.") -> go.Figure:
-    # Logic from previous complete version
     fig = go.Figure(); final_height = height if height is not None else app_config.DEFAULT_PLOT_HEIGHT
     fig.update_layout(title_text=f"{title} ({message})", height=final_height, xaxis={'visible': False}, yaxis={'visible': False}, annotations=[dict(text=message, xref="paper", yref="paper", showarrow=False, font=dict(size=14))]); return fig
 
 def plot_layered_choropleth_map(gdf: gpd.GeoDataFrame, value_col: str, title: str, id_col: str = 'zone_id', featureidkey_prefix: str = 'properties', color_continuous_scale: str = "Blues_r", hover_cols: Optional[List[str]] = None, facility_gdf: Optional[gpd.GeoDataFrame] = None, facility_size_col: Optional[str] = None, facility_hover_name: Optional[str] = None, facility_color: Optional[str] = None, height: Optional[int] = None, center_lat: Optional[float] = None, center_lon: Optional[float] = None, zoom_level: Optional[int] = None, mapbox_style: Optional[str] = None ) -> go.Figure:
-    # Logic from previous complete version - map scales are usually continuous for 'value_col'
-    # No changes specific to "realistic integer scales" usually apply here unless value_col represents pure counts AND small range
     final_height = height if height is not None else app_config.MAP_PLOT_HEIGHT
     if not isinstance(gdf, gpd.GeoDataFrame) or gdf.empty: return _create_empty_figure(title, final_height, "Map data unavailable.")
     active_geom_col = gdf.geometry.name if hasattr(gdf,'geometry') and hasattr(gdf.geometry,'name') else 'geometry'
@@ -86,14 +104,13 @@ def plot_layered_choropleth_map(gdf: gpd.GeoDataFrame, value_col: str, title: st
     gdf_for_geojson = gdf_plot[gdf_plot.geometry.is_valid & ~gdf_plot.geometry.is_empty].copy()
     if gdf_for_geojson.empty: return _create_empty_figure(title, final_height, "No valid geoms for map.")
     effective_mapbox_style = mapbox_style or pio.templates.default.layout.get('mapbox',{}).get('style', app_config.MAPBOX_STYLE)
-    if not MAPBOX_TOKEN_SET and effective_mapbox_style not in ["open-street-map", "carto-positron"]: effective_mapbox_style = "open-street-map"
+    if not MAPBOX_TOKEN_SET and effective_mapbox_style not in ["open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain", "stamen-toner", "stamen-watercolor"]: logger.warning(f"Map ('{title}'): Style '{effective_mapbox_style}' may require token. Defaulting to 'open-street-map'."); effective_mapbox_style = "open-street-map"
     hover_name_col = "name" if "name" in gdf_plot.columns else id_col
     default_hover = [hover_name_col, value_col, 'population']; final_hover_list = hover_cols if hover_cols is not None else default_hover
     hover_data_plot = {col: True for col in final_hover_list if col in gdf_plot.columns and col != hover_name_col and gdf_plot[col].notna().any()}
     labels_plot = {col: str(col).replace('_', ' ').title() for col in [value_col] + list(hover_data_plot.keys())}
     try: fig = px.choropleth_mapbox(data_frame=gdf_for_geojson, geojson=gdf_for_geojson.geometry.__geo_interface__, locations=id_col, featureidkey=f"{featureidkey_prefix}.{id_col}" if featureidkey_prefix else id_col, color=value_col, color_continuous_scale=color_continuous_scale, opacity=0.75, hover_name=hover_name_col, hover_data=hover_data_plot, labels=labels_plot, mapbox_style=effective_mapbox_style, center={"lat": center_lat or app_config.MAP_DEFAULT_CENTER_LAT, "lon": center_lon or app_config.MAP_DEFAULT_CENTER_LON}, zoom=zoom_level if zoom_level is not None else app_config.MAP_DEFAULT_ZOOM )
     except Exception as e: logger.error(f"Map Error ({title}): {e}", exc_info=True); return _create_empty_figure(title, final_height, f"Map error: {str(e)[:100]}")
-    # Facility layer logic (unchanged)
     if facility_gdf is not None and not facility_gdf.empty and 'geometry' in facility_gdf.columns:
         facility_plot_gdf = facility_gdf[facility_gdf.geometry.geom_type == 'Point'].copy()
         if not facility_plot_gdf.empty:
@@ -117,27 +134,33 @@ def plot_annotated_line_chart(data_series: pd.Series, title: str, y_axis_title: 
     fig = go.Figure(); line_color_val = color if color else _get_theme_color(0)
     y_hover_format = 'd' if y_is_count else ',.2f'; hovertemplate_str = f'<b>Date</b>: %{{x|{date_format}}}<br><b>{y_axis_title}</b>: %{{customdata:{y_hover_format}}}<extra></extra>'
     fig.add_trace(go.Scatter(x=data_series_numeric.index, y=data_series_numeric.values, mode="lines+markers", name=y_axis_title, line=dict(color=line_color_val, width=2.5), marker=dict(size=6), customdata=data_series_numeric.values, hovertemplate=hovertemplate_str))
-    if show_ci and lower_bound_series is not None and upper_bound_series is not None and not lower_bound_series.empty and not upper_bound_series.empty: # CI logic unchanged
+    if show_ci and lower_bound_series is not None and upper_bound_series is not None and not lower_bound_series.empty and not upper_bound_series.empty:
         common_idx_ci = data_series_numeric.index.intersection(lower_bound_series.index).intersection(upper_bound_series.index)
-        if not common_idx_ci.empty: ls = pd.to_numeric(lower_bound_series.reindex(common_idx_ci),errors='coerce'); us = pd.to_numeric(upper_bound_series.reindex(common_idx_ci),errors='coerce'); valid_ci_mask=ls.notna() & us.notna() & (us >= ls)
-        if valid_ci_mask.any(): x_ci,y_up,y_low = common_idx_ci[valid_ci_mask],us[valid_ci_mask],ls[valid_ci_mask]; fill_rgba = f"rgba({','.join(str(int(c,16)) for c in (line_color_val[1:3],line_color_val[3:5],line_color_val[5:7]))},0.15)" if line_color_val.startswith('#') and len(line_color_val)==7 else "rgba(0,123,255,0.15)"; fig.add_trace(go.Scatter(x=list(x_ci)+list(x_ci[::-1]), y=list(y_up.values)+list(y_low.values[::-1]), fill="toself", fillcolor=fill_rgba, line=dict(width=0), name="Confidence Interval", hoverinfo='skip'))
+        if not common_idx_ci.empty: 
+            ls = pd.to_numeric(lower_bound_series.reindex(common_idx_ci),errors='coerce'); us = pd.to_numeric(upper_bound_series.reindex(common_idx_ci),errors='coerce'); 
+            valid_ci_mask=ls.notna() & us.notna() & (us >= ls)
+            if valid_ci_mask.any(): 
+                x_ci,y_up,y_low = common_idx_ci[valid_ci_mask],us[valid_ci_mask],ls[valid_ci_mask]; 
+                fill_rgba = f"rgba({','.join(str(int(c,16)) for c in (line_color_val[1:3],line_color_val[3:5],line_color_val[5:7]))},0.15)" if line_color_val.startswith('#') and len(line_color_val)==7 else "rgba(0,123,255,0.15)"
+                fig.add_trace(go.Scatter(x=list(x_ci)+list(x_ci[::-1]), y=list(y_up.values)+list(y_low.values[::-1]), fill="toself", fillcolor=fill_rgba, line=dict(width=0), name="Confidence Interval", hoverinfo='skip'))
     if target_line is not None: fig.add_hline(y=target_line, line_dash="dot", line_color="#e74c3c", line_width=1.5, annotation_text=target_label if target_label else f"Target: {target_line:,.2f}", annotation_position="top right", annotation_font_size=10, annotation_font_color="#c0392b")
-    if show_anomalies and len(data_series_numeric.dropna()) > 10 and data_series_numeric.nunique() > 1: # Anomaly logic unchanged
+    if show_anomalies and len(data_series_numeric.dropna()) > 10 and data_series_numeric.nunique() > 1:
         q1=data_series_numeric.quantile(0.25); q3=data_series_numeric.quantile(0.75); iqr=q3-q1
-        if pd.notna(iqr) and iqr > 1e-9: upper_b=q3+1.5*iqr; lower_b=q1-1.5*iqr; anomalies=data_series_numeric[(data_series_numeric < lower_b)|(data_series_numeric > upper_b)]
-        if not anomalies.empty: fig.add_trace(go.Scatter(x=anomalies.index, y=anomalies.values, mode='markers', marker=dict(color=_get_theme_color(6,fallback_color='#fd7e14'), size=9, symbol='x-thin-open', line=dict(width=2.5)), name='Potential Anomaly', customdata=anomalies.values, hovertemplate=(f'<b>Anomaly Date</b>: %{{x|{date_format}}}<br><b>Value</b>: %{{customdata:{y_hover_format}}}<extra></extra>')))
+        if pd.notna(iqr) and iqr > 1e-9: 
+            upper_b=q3+1.5*iqr; lower_b=q1-1.5*iqr; anomalies=data_series_numeric[(data_series_numeric < lower_b)|(data_series_numeric > upper_b)]
+            if not anomalies.empty: fig.add_trace(go.Scatter(x=anomalies.index, y=anomalies.values, mode='markers', marker=dict(color=_get_theme_color(6,fallback_color='#fd7e14'), size=9, symbol='x-thin-open', line=dict(width=2.5)), name='Potential Anomaly', customdata=anomalies.values, hovertemplate=(f'<b>Anomaly Date</b>: %{{x|{date_format}}}<br><b>Value</b>: %{{customdata:{y_hover_format}}}<extra></extra>')))
     
     final_xaxis_title = data_series_numeric.index.name if data_series_numeric.index.name and str(data_series_numeric.index.name).strip() else "Date"
-    yaxis_layout = dict(title_text=y_axis_title, rangemode='tozero' if y_is_count else 'normal')
-    if y_is_count: # More robust dtick logic
+    yaxis_layout = dict(title_text=y_axis_title, rangemode='tozero' if y_is_count and data_series_numeric.min() >= 0 else 'normal') # Ensure tozero only if non-negative counts
+    if y_is_count:
         yaxis_layout['tickformat'] = 'd'
-        max_v = data_series_numeric.max(); min_v = data_series_numeric.min()
+        max_v = data_series_numeric.max(); min_v_check = data_series_numeric.min()
         if pd.notna(max_v) and max_v > 0:
-            if max_v <= 1 and pd.notna(min_v) and min_v >= 0 : yaxis_layout['dtick'] = 0.5
+            if max_v <= 1 and pd.notna(min_v_check) and min_v_check >=0 : yaxis_layout['dtick'] = 0.5 
             elif max_v <= 10: yaxis_layout['dtick'] = 1
-            elif max_v <= 25 and (max_v - (min_v if pd.notna(min_v) else 0)) <= 25 : yaxis_layout['dtick'] = 2 if max_v > 5 else 1 # Ensure whole number if range is small
+            elif max_v <= 25 and (max_v - (min_v_check if pd.notna(min_v_check) else 0)) <= 25 : yaxis_layout['dtick'] = 2 if max_v > 5 else 1
             elif max_v <= 50: yaxis_layout['dtick'] = 5
-            else: yaxis_layout['nticks'] = min(10, int(max_v / 5) + 1 if max_v / 5 > 1 else 5) # Aim for ~5-10 integer ticks
+            else: yaxis_layout['nticks'] = min(10, int(max_v / (max_v/10 if max_v > 50 else 5)) +1 ) # Dynamic nticks based on range
     fig.update_layout(title_text=title, xaxis_title=final_xaxis_title, yaxis=yaxis_layout, height=final_height, hovermode="x unified", legend=dict(traceorder='normal'))
     return fig
 
@@ -150,46 +173,54 @@ def plot_bar_chart(df_input: pd.DataFrame, x_col: str, y_col: str, title: str, c
     df.dropna(subset=[x_col, y_col], inplace=True)
     if df.empty: return _create_empty_figure(title, final_height, f"No valid data for x='{x_col}', y='{y_col}'.")
     
-    final_text_format = text_format if text_format is not None else ('d' if y_is_count else ',.1f')
-    plotly_text_specifier = final_text_format.split(':')[-1].lstrip('.') if ':' in final_text_format else (final_text_format.lstrip('.') if final_text_format.startswith('.') else final_text_format) # Extract just format like "d" or "0f"
-
+    final_text_format_str = text_format if text_format is not None else ('d' if y_is_count else ',.1f')
     final_y_title = y_axis_title if y_axis_title else y_col.replace('_', ' ').title(); final_x_title = x_axis_title if x_axis_title else x_col.replace('_', ' ').title()
-    if sort_values_by and sort_values_by in df.columns:
-        try: df.sort_values(by=sort_values_by, ascending=ascending, inplace=True, na_position='last', key=(lambda c: pd.to_numeric(c,errors='ignore') if pd.api.types.is_numeric_dtype(df[sort_values_by]) else c.astype(str)))
-        except Exception as e: logger.warning(f"Bar chart sort failure: {e}")
-    legend_title_text = color_col.replace('_',' ').title() if color_col and color_col in df.columns else None
     
-    final_color_map = color_discrete_map
+    if sort_values_by and sort_values_by in df.columns:
+        try: 
+            if pd.api.types.is_numeric_dtype(df[sort_values_by]): df.sort_values(by=sort_values_by, ascending=ascending, inplace=True, na_position='last')
+            else: df.sort_values(by=sort_values_by, ascending=ascending, inplace=True, na_position='last', key=lambda cs: cs.astype(str))
+        except Exception as e: logger.warning(f"Bar chart sort failure: {e}")
+    
+    legend_title_text = color_col.replace('_',' ').title() if color_col and color_col in df.columns else None
+    final_color_map_resolved = color_discrete_map
     if color_col and color_col in df.columns and color_discrete_map is None:
         if any(k in color_col.lower() for k in ['condition','disease','test_type','status','gender']):
-            unique_vals = df[color_col].unique()
-            final_color_map = {str(v): app_config.DISEASE_COLORS.get(str(v), _get_theme_color(i)) for i,v in enumerate(unique_vals) if hasattr(app_config, 'DISEASE_COLORS')}
-            if not final_color_map: final_color_map = None
+            unique_vals = df[color_col].dropna().unique() # Use dropna before unique for color mapping
+            final_color_map_resolved = {str(v): app_config.DISEASE_COLORS.get(str(v), _get_theme_color(hash(str(v)) % 10)) for i, v in enumerate(unique_vals) if hasattr(app_config, 'DISEASE_COLORS')}
+            if not final_color_map_resolved: final_color_map_resolved = None
+
+    fig = px.bar(df, x=x_col, y=y_col, title=title, color=color_col, barmode=barmode, orientation=orientation, height=final_height, labels={y_col:final_y_title, x_col:final_x_title, color_col:legend_title_text if legend_title_text else ""}, text_auto=text_auto, color_discrete_map=final_color_map_resolved)
     
-    fig = px.bar(df, x=x_col, y=y_col, title=title, color=color_col, barmode=barmode, orientation=orientation, height=final_height, labels={y_col:final_y_title, x_col:final_x_title, color_col:legend_title_text if legend_title_text else ""}, text_auto=text_auto, color_discrete_map=final_color_map)
-    
-    hover_val_fmt = 'd' if y_is_count else final_text_format # Use d for counts in hover
+    hover_val_fmt = 'd' if y_is_count else final_text_format_str
     base_hover_str = f'<b>{final_x_title}</b>: %{{x}}<br><b>{final_y_title}</b>: %{{y:{hover_val_fmt}}}' if orientation=='v' else f'<b>{final_y_title}</b>: %{{y}}<br><b>{final_x_title}</b>: %{{x:{hover_val_fmt}}}'
     hover_template_str = base_hover_str + (f'<br><b>{legend_title_text}</b>: %{{customdata[0]}}<extra></extra>' if color_col and color_col in df.columns and not df[[color_col]].empty else '<extra></extra>')
+    plotly_text_specifier = final_text_format_str.split(':')[-1].lstrip('.%,') if ':' in final_text_format_str or '.' in final_text_format_str or '%' in final_text_format_str or ',' in final_text_format_str else final_text_format_str
     texttemplate_str = (f'%{{y:{plotly_text_specifier}}}' if text_auto and orientation=='v' else (f'%{{x:{plotly_text_specifier}}}' if text_auto and orientation=='h' else None))
+    
     fig.update_traces(marker_line_width=0.7, marker_line_color='rgba(30,30,30,0.6)', textfont_size=10, textangle=0, textposition='auto' if orientation == 'v' else 'outside', cliponaxis=False, texttemplate=texttemplate_str, hovertemplate=hover_template_str, customdata=df[[color_col]] if color_col and color_col in df.columns else None)
-
-    val_axis_is_y_axis = orientation == 'v'
-    val_axis_config = {'title_text': final_y_title if val_axis_is_y_axis else final_x_title}
-    cat_axis_config = {'title_text': final_x_title if val_axis_is_y_axis else final_y_title}
+    
+    yaxis_config_bar = {'title_text': final_y_title}; xaxis_config_bar = {'title_text': final_x_title}
+    current_value_axis_config = yaxis_config_bar if orientation == 'v' else xaxis_config_bar
+    current_category_axis_config = xaxis_config_bar if orientation == 'v' else yaxis_config_bar
+    
     if y_is_count:
-        val_axis_config['tickformat'] = 'd'; val_axis_config['rangemode'] = 'tozero'
+        current_value_axis_config['tickformat'] = 'd'; current_value_axis_config['rangemode'] = 'tozero'
         max_v = df[y_col].max()
         if pd.notna(max_v) and max_v > 0:
-            if max_v <=1 and df[y_col].min() >=0: val_axis_config['dtick'] = 0.5
-            elif max_v <= 10: val_axis_config['dtick'] = 1
-            elif max_v <= 50: val_axis_config['dtick'] = 5
-            else: val_axis_config['nticks'] = min(10, int(max_v/10)+1 if max_v/10 > 1 else 5)
-    
-    # Category sorting based on sorted DataFrame (px.bar respects DataFrame order if no explicit categoryorder given)
-    if val_axis_is_y_axis: fig.update_layout(yaxis=val_axis_config, xaxis=cat_axis_config)
-    else: fig.update_layout(xaxis=val_axis_config, yaxis=cat_axis_config) # if horizontal, value is on X
-    fig.update_layout(uniformtext_minsize=8, uniformtext_mode='hide', legend_title_text=legend_title_text)
+            if max_v <=1 and df[y_col].min()>=0: current_value_axis_config['dtick'] = 0.5
+            elif max_v <= 10: current_value_axis_config['dtick'] = 1
+            elif max_v <= 50: current_value_axis_config['dtick'] = 5
+            else: current_value_axis_config['nticks'] = min(10, int(max_v/10)+1 if max_v/10 > 1 else 5)
+            
+    # If sorting by category values (already done in pandas sort), tell plotly to use that order
+    if sort_values_by and ( (orientation == 'v' and sort_values_by == x_col) or (orientation == 'h' and sort_values_by == y_col) ):
+        cat_order_col = x_col if orientation == 'v' else y_col
+        current_category_axis_config['categoryorder'] = 'array'; current_category_axis_config['categoryarray'] = df[cat_order_col].tolist()
+    elif orientation == 'h' and (not sort_values_by or sort_values_by == y_col) : # For horizontal bar, default sort categories by their value (on x-axis)
+        current_category_axis_config['categoryorder']='total ascending' if ascending else 'total descending'
+
+    fig.update_layout(yaxis=yaxis_config_bar, xaxis=xaxis_config_bar, uniformtext_minsize=8, uniformtext_mode='hide', legend_title_text=legend_title_text)
     return fig
 
 def plot_donut_chart(data_df_input: pd.DataFrame, labels_col: str, values_col: str, title: str, height: Optional[int] = None, color_discrete_map: Optional[Dict] = None, pull_segments: float = 0.03, center_text: Optional[str] = None, values_are_counts: bool = True) -> go.Figure:
@@ -210,7 +241,6 @@ def plot_donut_chart(data_df_input: pd.DataFrame, labels_col: str, values_col: s
     return fig
 
 def plot_heatmap(matrix_df_input: pd.DataFrame, title: str, height: Optional[int] = None, colorscale: str = "RdBu_r", zmid: Optional[float] = 0, text_auto: bool = True, text_format: str = ".2f", show_colorbar: bool = True) -> go.Figure:
-    # Logic from previous complete version (scales are usually continuous for heatmaps, so integer forcing not typical)
     final_height = height if height is not None else app_config.DEFAULT_PLOT_HEIGHT + 80
     if not isinstance(matrix_df_input, pd.DataFrame) or matrix_df_input.empty: return _create_empty_figure(title, final_height, "Invalid data for Heatmap.")
     df_numeric = matrix_df_input.copy().apply(pd.to_numeric, errors='coerce')
