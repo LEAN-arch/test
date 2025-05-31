@@ -386,7 +386,17 @@ def get_clinic_summary(df_clinic_period_view):
 
             tat_valid_tests_df = conclusive_tests_df[conclusive_tests_df['test_turnaround_days'].notna()]
             avg_tat_for_group = tat_valid_tests_df['test_turnaround_days'].mean()
-            
+            # In utils/core_data_processing.py, inside get_clinic_summary, before the problematic line
+logger.debug(f"Accessing app_config.TARGET_TEST_TURNAROUND_DAYS. Type of app_config: {type(app_config)}")
+logger.debug(f"Does app_config have TARGET_TEST_TURNAROUND_DAYS? {'TARGET_TEST_TURNAROUND_DAYS' in dir(app_config)}")
+if 'TARGET_TEST_TURNAROUND_DAYS' in dir(app_config):
+    logger.debug(f"Value of app_config.TARGET_TEST_TURNAROUND_DAYS: {app_config.TARGET_TEST_TURNAROUND_DAYS}")
+else:
+    logger.error("CRITICAL DEBUG: TARGET_TEST_TURNAROUND_DAYS is NOT an attribute of the imported app_config module!")
+    # You could even list all attributes to see what IS there:
+    # logger.debug(f"Available attributes in app_config: {dir(app_config)}")
+
+target_tat_for_group = config_details.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS) # Line 390
             target_tat = group_config.get("target_tat_days", app_config.TARGET_TEST_TURNAROUND_DAYS) # Use specific or global TAT
             met_target_tests_count = tat_valid_tests_df[tat_valid_tests_df['test_turnaround_days'] <= target_tat].shape[0]
             
