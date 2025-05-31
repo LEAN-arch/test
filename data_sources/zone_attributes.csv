@@ -1,0 +1,7 @@
+zone_id,zone_display_name,population,socio_economic_index,num_clinics,avg_travel_time_clinic_min
+ZoneA,Zona de Playas,12500,0.65,2,15
+ZoneB,Zona Norte,21000,0.42,1,28
+ZoneC,Zona Rio,17500,0.78,3,12
+ZoneD,Zona Otay,8500,0.55,1,22
+ZoneE,Zona Centro,35000,0.85,4,8
+ZoneF,Zona La Mesa,15000,0.30,1,35
