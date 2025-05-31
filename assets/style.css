@@ -149,6 +149,30 @@ h3.kpi-title, h3.chart-title {
     height: 100%; /* For consistent height if in st.columns */
     text-align: left;
 }
+/* Styling for the container of the custom markdown KPI for "Top Condition" */
+.custom-markdown-kpi-box {
+    background-color: #ffffff;
+    border-radius: 12px;
+    padding: 1.6rem;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.07);
+    border-left: 7px solid #6c757d; /* Default neutral grey accent */
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+    text-align: left;
+}
+
+/* NEW: Class to give a red left border (edge) highlight */
+.custom-markdown-kpi-box.highlight-red-edge {
+    border-left-color: #E74C3C !important; /* Bright Red, use !important to ensure override if needed */
+}
+/* Optionally, you might want to make the icon or title red too if there was one */
+/* .custom-markdown-kpi-box.highlight-red-edge .some-icon-class { color: #E74C3C; } */
+/* .custom-markdown-kpi-box.highlight-red-edge .custom-kpi-label-top-condition { color: #E74C3C; } */
+
+
 /* Custom Label Styling for "Top Condition" KPI */
 .custom-kpi-label-top-condition {
     font-size: 0.85rem; 
@@ -159,7 +183,7 @@ h3.kpi-title, h3.chart-title {
 }
 /* Value styling for the custom "Top Condition" KPI */
 .custom-kpi-value-large { 
-    font-size: 1.8rem; /* May need adjustment based on typical content length */
+    font-size: 1.8rem; 
     font-weight: 700;
     color: #2C3E50; 
     line-height: 1.2;
@@ -173,6 +197,7 @@ h3.kpi-title, h3.chart-title {
     color: #7F8C8D;
     margin-top: 0.1rem;
 }
+
 
 
 /* ----- Traffic Light Indicator Styling ----- */
