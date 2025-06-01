@@ -22,8 +22,8 @@ APP_LOGO = os.path.join(ASSETS_DIR, "DNA-DxBrand.png") # Make sure this image ex
 # App Settings
 APP_TITLE = "Community Health Intelligence Hub"
 APP_VERSION = "2.1.1"
-APP_FOOTER = f"© {pd.Timestamp('now').year} Health Informatics Initiative. All Rights Reserved. For Demonstration Purposes Only."
-CONTACT_EMAIL = "support@healthhub-demo.com"
+APP_FOOTER = f"© {pd.Timestamp('now').year} SynergyDx Health Informatics Initiative. All Rights Reserved. For Demonstration Purposes Only."
+CONTACT_EMAIL = "https://synergydx.mystrikingly.com/"
 CACHE_TTL_SECONDS = 3600
 
 # Dashboard specific settings
