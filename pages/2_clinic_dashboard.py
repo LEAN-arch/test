@@ -155,14 +155,31 @@ else: st.warning("Clinic Epidemiology module requires health data.")
 st.markdown("---")
 
 # --- Tabbed Interface ---
-tab_titles_final_clinic = ["🔬 Testing Insights", "💊 Supply Chain", "🧍 Patient Focus", "🌿 Environment Details"]
-tab_tests_comp_disp, tab_supplies_comp_disp, tab_patients_alerts_comp_disp, tab_environment_detail_comp_disp = st.tabs(tab_titles_clinic_final)
+tab_titles_for_clinic_dashboard = [
+    "🔬 Testing Insights", 
+    "💊 Supply Chain", 
+    "🧍 Patient Focus", # Was "Patient Focus & Alerts", simplifying if alerts are integrated elsewhere
+    "🌿 Environment Details"
+]
 
-with tab_tests_comp_disp:
+# Use the correctly defined variable in st.tabs()
+tab_tests_disp, tab_supplies_disp, tab_patients_alerts_disp, tab_environment_detail_comp_disp = st.tabs(
+    tab_titles_for_clinic_dashboard # CORRECTED: Use the defined variable
+)
+
+with tab_tests_disp:
+    # Pass filtered_health_df_clinic for period data and clinic_service_kpis for pre-calculated summaries
     testing_insights_tab.render_testing_insights(filtered_health_df_clinic, clinic_service_kpis)
+
 with tab_supplies_comp_disp:
-    supply_chain_tab.render_supply_chain(health_df_clinic_main, filtered_health_df_clinic)
+    # Supply chain component needs main_df for historical rates and filtered_df for current period context if any
+    supply_chain_tab.render_supply_chain(
+        health_df_clinic_main if health_data_available else pd.DataFrame(columns=(health_df_clinic_main.columns if health_data_available else [])), 
+        filtered_health_df_clinic
+    )
+
 with tab_patients_alerts_comp_disp:
     patient_focus_tab.render_patient_focus(filtered_health_df_clinic)
+
 with tab_environment_detail_comp_disp:
     environment_details_tab.render_environment_details(filtered_iot_df_clinic, iot_data_available)
