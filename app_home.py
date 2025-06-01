@@ -109,6 +109,13 @@ with col3:
     st.markdown("##### 🎯 **Targeted Intervention & Systems Insights**"); st.markdown("<small>Utilize data-driven criteria...</small>", unsafe_allow_html=True)
     st.markdown("##### ❤️ **Equity-Focused Analytics**"); st.markdown("<small>Explore health outcomes and risk distributions...</small>", unsafe_allow_html=True)
 
+with st.expander("📜 **Glossary of Terms** - Definitions for terms and metrics used.", expanded=False):
+    st.markdown("""
+    - Understand the terminology used across various dashboards.
+    - Look up abbreviations and technical definitions.
+    """)
+    if st.button("Go to Glossary", key="nav_glossary_home_v1", type="secondary"): # Use secondary button type
+        st.switch_page("pages/5_Glossary.py") # Ensure filename matches
 
 # --- Sidebar Content Customization for app_home.py ---
 st.sidebar.header(f"{app_config.APP_TITLE.split(' ')[0]} Hub Navigation") # General title
