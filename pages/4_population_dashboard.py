@@ -164,28 +164,38 @@ else:
             if not cond_counts_kpi.empty: top_cond_name = cond_counts_kpi.idxmax(); top_cond_count = cond_counts_kpi.max()
         st.markdown(f"""<div class="custom-markdown-kpi-box highlight-red-edge"><div class="custom-kpi-label-top-condition">{html.escape("Top Condition (Encounters)")}</div><div class="custom-kpi-value-large">{html.escape(str(top_cond_name))}</div><div class="custom-kpi-subtext-small">{html.escape(f"{top_cond_count} encounters") if top_cond_name != "N/A" else ""}</div></div>""", unsafe_allow_html=True)
     
-    kpi_cols2 = st.columns(3)
-    mal_rdt_key = "RDT-Malaria"; mal_pos_rate = 0.0
-    if 'test_type' in analytics_df_display.columns and 'test_result' in analytics_df_display.columns:
-        mal_df_kpi = analytics_df_display[(analytics_df_display['test_type']==mal_rdt_key) & (~analytics_df_display['test_result'].isin(['Pending','Unknown','Rejected Sample']))]
-        if not mal_df_kpi.empty and len(mal_df_kpi)>0: mal_pos_rate=(mal_df_kpi[mal_df_kpi['test_result']=='Positive'].shape[0]/len(mal_df_kpi))*100
-    kpi_cols2[0].metric(f"{app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(mal_rdt_key, {}).get('display_name', mal_rdt_key)} Positivity", f"{mal_pos_rate:.1f}%")
-    ref_comp_rate = 0.0
-    if all(c in analytics_df_display for c in ['referral_status','referral_outcome','encounter_id']):
-        refs_made = analytics_df_display[analytics_df_display['referral_status'].notna()&(~analytics_df_display['referral_status'].isin(['N/A','Unknown']))]
-        if not refs_made.empty:
-            total_refs = refs_made['encounter_id'].nunique(); compl_outcomes = ['Completed','Service Provided','Attended','Attended Consult','Attended Followup']
-            compl_refs_count = refs_made[refs_made['referral_outcome'].isin(compl_outcomes)]['encounter_id'].nunique()
-            if total_refs>0: ref_comp_rate = (compl_refs_count/total_refs)*100
-    kpi_pop_cols2[1].metric("Referral Completion Rate", f"{ref_comp_rate:.1f}%", help="Conclusive positive outcomes.")
-    avg_comorb_hr = np.nan
-    if all(c in analytics_df_display for c in ['key_chronic_conditions_summary','ai_risk_score']) and analytics_df_display['ai_risk_score'].notna().any():
-        hr_df_comorb = analytics_df_display[pd.to_numeric(analytics_df_display['ai_risk_score'],errors='coerce')>=app_config.RISK_THRESHOLDS['high']]
-        if not hr_df_comorb.empty and hr_df_comorb['key_chronic_conditions_summary'].notna().any():
-            comorb_counts = hr_df_comorb['key_chronic_conditions_summary'].apply(lambda x:len([c for c in str(x).split(';') if c.strip() and c.lower() not in ['unknown','n/a','none']]))
-            if comorb_counts.notna().any(): avg_comorb_hr=comorb_counts.mean()
-    kpi_pop_cols2[2].metric("Avg. Comorbidities (High Risk Pts)", f"{avg_comorb_hr:.1f}" if pd.notna(avg_comorb_hr) else "N/A")
-st.markdown("---")
+    kpi_pop_cols2 = st.columns(3)
+    # ... (Malaria Positivity KPI) ...
+
+    # 6. Referral Completion Rate
+    referral_completion_rate_kpi_val = 0.0 # Initialized
+    if 'referral_status' in analytics_df_display.columns and \
+       'referral_outcome' in analytics_df_display.columns and \
+       'encounter_id' in analytics_df_display.columns: # Ensure all needed columns are present
+        
+        referrals_made_df_kpi = analytics_df_display[
+            analytics_df_display['referral_status'].notna() & 
+            (~analytics_df_display['referral_status'].isin(['N/A', 'Unknown']))
+        ]
+        if not referrals_made_df_kpi.empty:
+            total_made_referrals_kpi = referrals_made_df_kpi['encounter_id'].nunique()
+            completed_outcomes_kpi = ['Completed', 'Service Provided', 'Attended', 'Attended Consult', 'Attended Followup']
+            
+            # Ensure 'referral_outcome' column is accessed safely
+            if 'referral_outcome' in referrals_made_df_kpi.columns:
+                completed_refs_kpi = referrals_made_df_kpi[
+                    referrals_made_df_kpi['referral_outcome'].isin(completed_outcomes_kpi)
+                ]['encounter_id'].nunique()
+                if total_made_referrals_kpi > 0:
+                    referral_completion_rate_kpi_val = (completed_refs_kpi / total_made_referrals_kpi) * 100
+            # If 'referral_outcome' is somehow not in referrals_made_df_kpi (though it should be if in analytics_df_display)
+            # referral_completion_rate_kpi_val remains 0.0
+            
+    # The problematic line uses ref_comp_rate
+    # kpi_pop_cols2[1].metric("Referral Completion Rate", f"{ref_comp_rate:.1f}%", help="Based on conclusive positive outcomes.")
+    # It should use referral_completion_rate_kpi_val
+    kpi_pop_cols2[1].metric("Referral Completion Rate", f"{referral_completion_rate_kpi_val:.1f}%", help="Based on conclusive positive outcomes.")
+
 
 # --- Tabbed Interface ---
 tab_epi_overview, tab_demographics_sdoh, tab_clinical_dx, tab_systems_equity = st.tabs([
