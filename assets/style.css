@@ -135,33 +135,47 @@ h3.kpi-title, h3.chart-title {
 .kpi-card.status-neutral .kpi-icon { color: #95A5A6; }
 
 
-/* Custom Markdown KPI Box (e.g., for "Top Condition" in Population Dashboard) */
+/* Styling for the container of the custom markdown KPI */
 .custom-markdown-kpi-box {
     background-color: #ffffff;
     border-radius: 12px;
-    padding: 1.6rem;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.07);
-    border-left: 7px solid #6c757d; /* Neutral grey accent, adjust as needed */
-    margin-bottom: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    height: 100%; /* For consistent height if in st.columns */
-    text-align: left;
-}
-/* Styling for the container of the custom markdown KPI for "Top Condition" */
-.custom-markdown-kpi-box {
-    background-color: #ffffff;
-    border-radius: 12px;
-    padding: 1.6rem;
+    padding: 1.6rem;     /* Ensure consistent padding */
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.07);
     border-left: 7px solid #6c757d; /* Default neutral grey accent */
     margin-bottom: 1.5rem;
-    display: flex;
+    display: flex; /* Enables flex properties for children if needed */
     flex-direction: column;
-    justify-content: space-between;
-    height: 100%;
+    justify-content: space-between; /* Optional: for internal spacing */
+    height: 100%; /* For consistent height when in st.columns */
     text-align: left;
+}
+
+.custom-markdown-kpi-box.highlight-red-edge {
+    border-left-color: #E74C3C !important; /* Overrides default left border color */
+}
+
+.custom-kpi-label-top-condition {
+    font-size: 0.85rem; 
+    color: #566573;    
+    font-weight: 600;  
+    margin-bottom: 0.4rem; 
+    line-height: 1.3;
+}
+
+.custom-kpi-value-large { 
+    font-size: 1.8rem; 
+    font-weight: 700;
+    color: #2C3E50; 
+    line-height: 1.2;
+    margin-bottom: 0.2rem;
+    word-wrap: break-word; 
+    overflow-wrap: break-word;
+}
+
+.custom-kpi-subtext-small {
+    font-size: 0.8rem;
+    color: #7F8C8D;
+    margin-top: 0.1rem;
 }
 
 /* NEW: Class to give a red left border (edge) highlight */
