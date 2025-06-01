@@ -64,7 +64,6 @@ with header_cols[1]:
 st.markdown("---") 
 
 # --- App Introduction & Navigation Expanders ---
-# (Content of Introduction unchanged)
 st.markdown("""
     #### Welcome to the Health Intelligence Hub!
     This platform is designed to provide actionable, real-time intelligence...
@@ -72,31 +71,40 @@ st.markdown("""
 st.success("👈 **Please select a specialized dashboard from the sidebar navigation to explore tailored insights and tools.**")
 st.subheader("Explore Role-Specific Dashboards:")
 
-# (Expanders for CHW, Clinic, DHO dashboards remain the same)
-with st.expander("🧑‍⚕️ **Community Health Worker (CHW) Dashboard** ...", expanded=False):
-    # ... (content)
+with st.expander("🧑‍⚕️ **Community Health Worker (CHW) Dashboard** - Daily patient prioritization & field operations tool.", expanded=False):
+    st.markdown("""
+    - **Focus:** Empowering CHWs with tools for efficient daily patient management, proactive health monitoring, and timely alert response in their assigned communities.
+    - **Key Features:** Daily task lists, patient alerts based on AI risk scores and critical vital signs, symptom reporting summaries, wellness indicator tracking (e.g., steps, SpO2, fever alerts), and localized epidemiological trends.
+    - **Objective:** Enhance CHW effectiveness in providing primary healthcare, improving patient follow-up, identifying at-risk individuals early, and contributing to local public health surveillance and response efforts.
+    """)
     if st.button("Go to CHW Dashboard", key="nav_chw_home_v8", type="primary"): st.switch_page("pages/1_chw_dashboard.py")
 
-with st.expander("🏥 **Clinic Operations Dashboard** ...", expanded=False):
-    # ... (content)
+with st.expander("🏥 **Clinic Operations Dashboard** - Service efficiency, quality of care & resource management.", expanded=False):
+    st.markdown("""
+    - **Focus:** Optimizing clinic workflows, enhancing the quality of patient care, managing resources effectively (testing, supplies), and monitoring the clinic's immediate environment and local disease patterns.
+    - **Key Features:** Key performance indicators (KPIs) for testing turnaround times (TAT), patient throughput, supply stock levels, environmental sensor readings (e.g., CO2, PM2.5, noise), and clinic-level epidemiological summaries including symptom trends and test positivity rates.
+    - **Objective:** Improve operational efficiency, ensure high-quality service delivery, maintain optimal resource availability, provide a safe and healthy clinic environment, and respond effectively to local health trends impacting the clinic.
+    """)
     if st.button("Go to Clinic Dashboard", key="nav_clinic_home_v8", type="primary"): st.switch_page("pages/2_clinic_dashboard.py")
 
-with st.expander("🗺️ **District Health Officer (DHO) Dashboard** ...", expanded=False):
-    # ... (content)
+with st.expander("🗺️ **District Health Officer (DHO) Dashboard** - Strategic population health & resource oversight.", expanded=False):
+    st.markdown("""
+    - **Focus:** Providing DHOs with a comprehensive, data-driven view of health status, service delivery, and environmental conditions across multiple zones or the entire district to inform strategic planning and resource allocation.
+    - **Key Features:** District-wide health KPIs, interactive maps displaying zonal variations in AI risk, disease burden, and resource access, comparative analysis of zones, environmental health trends, and tools for identifying priority areas for intervention based on configurable criteria.
+    - **Objective:** Support evidence-based decision-making for public health interventions, resource deployment, program monitoring, and policy development to improve overall population health outcomes and equity at the district level.
+    """)
     if st.button("Go to District Dashboard", key="nav_dho_home_v8", type="primary"): st.switch_page("pages/3_district_dashboard.py")
 
-# Updated Expander for the renamed Population Dashboard
 with st.expander("📊 **Population Dashboard** - Deep-dive epidemiological & systems analysis.", expanded=True):
     st.markdown("""
     - **Focus:** Comprehensive analysis of demographic patterns, social determinants of health (SDOH), clinical and diagnostic trends, health system performance, and equity considerations across the entire population dataset.
     - **Key Features:** Stratified views of disease burden, AI risk score distributions by demographics/SDOH, aggregated test positivity trends, comorbidity analysis, and referral pathway overviews.
     - **Objective:** Offer a macro-level analytical tool for epidemiologists, program managers, and policymakers to understand population health dynamics and identify areas for strategic focus and research.
     """)
-    if st.button("Go to Population Dashboard", key="nav_pop_dashboard_home_v2", type="primary"): # Updated key for new name
-        st.switch_page("pages/4_Population_Dashboard.py") # Ensure this matches your new filename
+    if st.button("Go to Population Dashboard", key="nav_pop_dashboard_home_v2", type="primary"):
+        st.switch_page("pages/4_Population_Dashboard.py")
 
 st.markdown("---")
-# ... (Platform Capabilities section unchanged from last good version) ...
 st.subheader("Platform Capabilities at a Glance")
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -114,14 +122,13 @@ with st.expander("📜 **Glossary of Terms** - Definitions for terms and metrics
     - Understand the terminology used across various dashboards.
     - Look up abbreviations and technical definitions.
     """)
-    if st.button("Go to Glossary", key="nav_glossary_home_v1", type="secondary"): # Use secondary button type
-        st.switch_page("pages/5_Glossary.py") # Ensure filename matches
+    if st.button("Go to Glossary", key="nav_glossary_home_v1", type="secondary"): 
+        st.switch_page("pages/5_Glossary.py")
 
 # --- Sidebar Content Customization for app_home.py ---
 st.sidebar.header(f"{app_config.APP_TITLE.split(' ')[0]} Hub Navigation") # General title
-# Add the APP_LOGO to the app_home.py sidebar
 if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, width=230) # Using the smaller, consistent sidebar logo size
+    st.sidebar.image(app_config.APP_LOGO, width=230) 
 st.sidebar.caption(f"Version {app_config.APP_VERSION}")
 st.sidebar.markdown("---")
 st.sidebar.markdown("### About This Platform")
