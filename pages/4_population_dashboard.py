@@ -116,51 +116,46 @@ if analytics_df_display.empty and (selected_condition_filter_pop_dash != "All Co
 
 # --- Decision-Making KPI Boxes ---
 st.subheader(f"Key Indicators ({selected_start_date_pop.strftime('%d %b')} - {selected_end_date_pop.strftime('%d %b')}, Cond: {selected_condition_filter_pop_dash}, Zone: {selected_zone_filter_pop_dash})")
-if analytics_df_display.empty: st.info("No data to display key indicators for current filter selection.")
+if analytics_df_display.empty:
+    st.info("No data available to display key indicators for the current filter selection.")
 else:
     kpi_pop_cols1 = st.columns(4)
-    unique_patients_val = analytics_df_display['patient_id'].nunique() if 'patient_id' in analytics_df_display.columns else 0
-    kpi_pop_cols1[0].metric("Unique Patients (Filtered)", f"{unique_patients_val:,}")
-    avg_ai_risk_val = np.nan
-    if 'ai_risk_score' in analytics_df_display.columns and analytics_df_display['ai_risk_score'].notna().any(): avg_ai_risk_val = analytics_df_display['ai_risk_score'].mean()
-    kpi_pop_cols1[1].metric("Avg. AI Risk Score", f"{avg_ai_risk_val:.1f}" if pd.notna(avg_ai_risk_val) else "N/A")
-    high_risk_count_val = 0; prop_high_risk_val = 0.0
-    if 'ai_risk_score' in analytics_df_display.columns and analytics_df_display['ai_risk_score'].notna().any() and 'patient_id' in analytics_df_display.columns and unique_patients_val > 0:
-        high_risk_df = analytics_df_display[pd.to_numeric(analytics_df_display['ai_risk_score'], errors='coerce') >= app_config.RISK_THRESHOLDS['high']]
-        if not high_risk_df.empty: high_risk_count_val = high_risk_df['patient_id'].nunique()
-        prop_high_risk_val = (high_risk_count_val / unique_patients_val) * 100
-    val_prop_risk_display = f"{prop_high_risk_val:.1f}%" if unique_patients_val > 0 and pd.notna(prop_high_risk_val) else ("0.0%" if unique_patients_val > 0 else "N/A")
-    help_text_prop_risk = f"{int(high_risk_count_val)} unique patient(s) with AI Risk Score ≥ {app_config.RISK_THRESHOLDS['high']}"
-    kpi_pop_cols1[2].metric(label="% High AI Risk Patients", value=val_prop_risk_display, help=help_text_prop_risk)
+    # KPIs 1, 2, 3 use st.metric and are already boxed by Streamlit's default or your CSS override for stMetric
+    # ... (Unique Patients, Avg AI Risk, % High AI Risk KPIs as before) ...
+    unique_patients_in_filter = analytics_df_display['patient_id'].nunique() if 'patient_id' in analytics_df_display.columns else 0
+    kpi_pop_cols1[0].metric("Unique Patients (Filtered)", f"{unique_patients_in_filter:,}")
+    avg_ai_risk_filtered = np.nan
+    if 'ai_risk_score' in analytics_df_display.columns and analytics_df_display['ai_risk_score'].notna().any(): avg_ai_risk_filtered = analytics_df_display['ai_risk_score'].mean()
+    kpi_pop_cols1[1].metric("Avg. AI Risk Score", f"{avg_ai_risk_filtered:.1f}" if pd.notna(avg_ai_risk_filtered) else "N/A")
+    high_risk_count_filtered = 0; prop_high_risk_filtered = 0.0
+    if 'ai_risk_score' in analytics_df_display.columns and analytics_df_display['ai_risk_score'].notna().any() and 'patient_id' in analytics_df_display.columns and unique_patients_in_filter > 0:
+        high_risk_patients_df = analytics_df_display[pd.to_numeric(analytics_df_display['ai_risk_score'], errors='coerce') >= app_config.RISK_THRESHOLDS['high']]
+        if not high_risk_patients_df.empty: high_risk_count_filtered = high_risk_patients_df['patient_id'].nunique()
+        prop_high_risk_filtered = (high_risk_count_filtered / unique_patients_in_filter) * 100
+    value_prop_high_risk = f"{prop_high_risk_filtered:.1f}%" if unique_patients_in_filter > 0 and pd.notna(prop_high_risk_filtered) else ("0.0%" if unique_patients_in_filter > 0 else "N/A")
+    help_text_prop_high_risk = f"{int(high_risk_count_filtered)} unique patient(s) with AI Risk Score ≥ {app_config.RISK_THRESHOLDS['high']}"
+    kpi_pop_cols1[2].metric(label="% High AI Risk Patients", value=value_prop_high_risk, help=help_text_prop_high_risk)
+
+
+    # 4. Most Prevalent Condition (Encounters) - ENSURING BOX STYLING
     with kpi_pop_cols1[3]:
-        top_cond_name = "N/A"; top_cond_enc_count = 0
+        most_prevalent_condition_val = "N/A"
+        most_prevalent_condition_count = 0
         if 'condition' in analytics_df_display.columns and analytics_df_display['condition'].notna().any():
-            cond_enc_counts = analytics_df_display['condition'].value_counts()
-            if not cond_enc_counts.empty: top_cond_name = cond_enc_counts.idxmax(); top_cond_enc_count = cond_enc_counts.max()
-        st.markdown(f"""<div class="custom-markdown-kpi-box highlight-red-edge"><div class="custom-kpi-label-top-condition">Top Condition (Encounters)</div><div class="custom-kpi-value-large">{html.escape(str(top_cond_name))}</div><div class="custom-kpi-subtext-small">{html.escape(f"{top_cond_enc_count} encounters") if top_cond_name != "N/A" else ""}</div></div>""", unsafe_allow_html=True)
-    kpi_pop_cols2 = st.columns(3)
-    mal_rdt_key_kpi_pop = "RDT-Malaria"; mal_rdt_pos_rate_val_pop = 0.0
-    if 'test_type' in analytics_df_display.columns and 'test_result' in analytics_df_display.columns:
-        mal_rdt_df_kpi_pop = analytics_df_display[(analytics_df_display['test_type'] == mal_rdt_key_kpi_pop) & (~analytics_df_display['test_result'].isin(['Pending','Rejected Sample','Unknown','N/A']))]
-        if not mal_rdt_df_kpi_pop.empty and len(mal_rdt_df_kpi_pop) > 0 : mal_rdt_pos_rate_val_pop = (mal_rdt_df_kpi_pop[mal_rdt_df_kpi_pop['test_result'] == 'Positive'].shape[0] / len(mal_rdt_df_kpi_pop)) * 100
-    kpi_pop_cols2[0].metric(f"{app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(mal_rdt_key_kpi_pop, {}).get('display_name', mal_rdt_key_kpi_pop)} Positivity", f"{mal_rdt_pos_rate_val_pop:.1f}%")
-    ref_compl_rate_val_pop = 0.0
-    if all(c in analytics_df_display for c in ['referral_status', 'referral_outcome', 'encounter_id']):
-        refs_made_df_pop = analytics_df_display[analytics_df_display['referral_status'].notna() & (~analytics_df_display['referral_status'].isin(['N/A', 'Unknown']))]
-        if not refs_made_df_pop.empty:
-            total_made_refs_pop = refs_made_df_pop['encounter_id'].nunique()
-            compl_outcomes_pop = ['Completed', 'Service Provided', 'Attended', 'Attended Consult', 'Attended Followup']
-            compl_refs_pop = refs_made_df_pop[refs_made_df_pop['referral_outcome'].isin(compl_outcomes_pop)]['encounter_id'].nunique()
-            if total_made_refs_pop > 0: ref_compl_rate_val_pop = (compl_refs_pop / total_made_refs_pop) * 100
-    kpi_pop_cols2[1].metric("Referral Completion Rate", f"{ref_compl_rate_val_pop:.1f}%", help="Based on conclusive positive outcomes.")
-    avg_comorb_hr_val_pop = np.nan
-    if all(c in analytics_df_display for c in ['key_chronic_conditions_summary', 'ai_risk_score']) and analytics_df_display['ai_risk_score'].notna().any():
-        hr_df_comorb_pop = analytics_df_display[pd.to_numeric(analytics_df_display['ai_risk_score'], errors='coerce') >= app_config.RISK_THRESHOLDS['high']]
-        if not hr_df_comorb_pop.empty and hr_df_comorb_pop['key_chronic_conditions_summary'].notna().any():
-            comorb_counts_pop = hr_df_comorb_pop['key_chronic_conditions_summary'].apply(lambda x: len([c for c in str(x).split(';') if c.strip() and c.lower() not in ['unknown', 'n/a', 'none']]))
-            if comorb_counts_pop.notna().any(): avg_comorb_hr_val_pop = comorb_counts_pop.mean()
-    kpi_pop_cols2[2].metric("Avg. Comorbidities (High Risk Pts)", f"{avg_comorb_hr_val_pop:.1f}" if pd.notna(avg_comorb_hr_val_pop) else "N/A")
-st.markdown("---")
+            condition_encounter_counts = analytics_df_display['condition'].value_counts() # Counts occurrences
+            if not condition_encounter_counts.empty:
+                most_prevalent_condition_val = condition_encounter_counts.idxmax()
+                most_prevalent_condition_count = condition_encounter_counts.max()
+        
+        # This entire block will be placed within the kpi_pop_cols1[3] Streamlit column.
+        # The CSS class "custom-markdown-kpi-box" should give it the card-like appearance.
+        st.markdown(f"""
+        <div class="custom-markdown-kpi-box highlight-red-edge"> 
+            <div class="custom-kpi-label-top-condition">{html.escape("Top Condition (Encounters)")}</div>
+            <div class="custom-kpi-value-large">{html.escape(str(most_prevalent_condition_val))}</div>
+            <div class="custom-kpi-subtext-small">{html.escape(f"{most_prevalent_condition_count} encounters") if most_prevalent_condition_val != "N/A" else ""}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # --- Tabbed Interface ---
 tab_epi_overview, tab_demographics_sdoh, tab_clinical_dx, tab_systems_equity = st.tabs([
