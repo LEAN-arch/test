@@ -155,31 +155,35 @@ else: st.warning("Clinic Epidemiology module requires health data.")
 st.markdown("---")
 
 # --- Tabbed Interface ---
-tab_titles_for_clinic_dashboard = [
+# test/pages/2_clinic_dashboard.py
+# ... (imports, data loading, KPI sections, epi_module call) ...
+st.markdown("---") # Separator before tabs
+
+# --- Tabbed Interface using component functions ---
+tab_titles_for_clinic_dashboard = [ # Using a consistent name for the list of titles
     "🔬 Testing Insights", 
     "💊 Supply Chain", 
-    "🧍 Patient Focus", # Was "Patient Focus & Alerts", simplifying if alerts are integrated elsewhere
+    "🧍 Patient Focus", 
     "🌿 Environment Details"
 ]
 
-# Use the correctly defined variable in st.tabs()
-tab_tests_disp, tab_supplies_disp, tab_patients_alerts_disp, tab_environment_detail_comp_disp = st.tabs(
-    tab_titles_for_clinic_dashboard # CORRECTED: Use the defined variable
-)
+# Unpack tabs with consistent names
+tab_tests_display, tab_supplies_display, tab_patients_display, tab_environment_display = st.tabs(
+    tab_titles_for_clinic_dashboard 
+) # Line ~159
 
-with tab_tests_disp:
-    # Pass filtered_health_df_clinic for period data and clinic_service_kpis for pre-calculated summaries
+# Use the EXACT same names in the 'with' statements
+with tab_tests_display: # CORRECTED
     testing_insights_tab.render_testing_insights(filtered_health_df_clinic, clinic_service_kpis)
 
-with tab_supplies_comp_disp:
-    # Supply chain component needs main_df for historical rates and filtered_df for current period context if any
+with tab_supplies_display: # CORRECTED (Line ~174 causing the NameError)
     supply_chain_tab.render_supply_chain(
         health_df_clinic_main if health_data_available else pd.DataFrame(columns=(health_df_clinic_main.columns if health_data_available else [])), 
         filtered_health_df_clinic
     )
 
-with tab_patients_alerts_comp_disp:
+with tab_patients_display: # CORRECTED
     patient_focus_tab.render_patient_focus(filtered_health_df_clinic)
 
-with tab_environment_detail_comp_disp:
+with tab_environment_display: # CORRECTED
     environment_details_tab.render_environment_details(filtered_iot_df_clinic, iot_data_available)
