@@ -90,7 +90,7 @@ st.markdown("---")
 # !!! IMPORTANT: Any duplicated "DHO Dashboard" titles that were here have been removed. !!!
 
 # --- Sidebar Filters & Date Range Setup ---
-if os.path.exists(app_config.APP_LOGO): st.sidebar.image(app_config.APP_LOGO, width=100); st.sidebar.markdown("---")
+if os.path.exists(app_config.APP_LOGO): st.sidebar.image(app_config.APP_LOGO, width=230); st.sidebar.markdown("---")
 else: logger.warning(f"Sidebar logo not found on Clinic Dashboard at {app_config.APP_LOGO}")
 st.sidebar.header("🗓️ Clinic Filters")
 
