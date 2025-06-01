@@ -139,18 +139,16 @@ else:
 
     # 4. Most Prevalent Condition (Encounters) - ENSURING BOX STYLING
     with kpi_pop_cols1[3]:
-        most_prevalent_condition_val = "N/A"
-        most_prevalent_condition_count = 0
+        most_prevalent_condition_val = "N/A"; most_prevalent_condition_count = 0
         if 'condition' in analytics_df_display.columns and analytics_df_display['condition'].notna().any():
-            condition_encounter_counts = analytics_df_display['condition'].value_counts() # Counts occurrences
-            if not condition_encounter_counts.empty:
+            condition_encounter_counts = analytics_df_display['condition'].value_counts()
+            if not condition_encounter_counts.empty: 
                 most_prevalent_condition_val = condition_encounter_counts.idxmax()
                 most_prevalent_condition_count = condition_encounter_counts.max()
         
-        # This entire block will be placed within the kpi_pop_cols1[3] Streamlit column.
-        # The CSS class "custom-markdown-kpi-box" should give it the card-like appearance.
+        # THIS IS THE CRUCIAL PART FOR BOXING
         st.markdown(f"""
-        <div class="custom-markdown-kpi-box highlight-red-edge"> 
+        <div class="custom-markdown-kpi-box highlight-red-edge">  <!-- Ensures box style + red edge -->
             <div class="custom-kpi-label-top-condition">{html.escape("Top Condition (Encounters)")}</div>
             <div class="custom-kpi-value-large">{html.escape(str(most_prevalent_condition_val))}</div>
             <div class="custom-kpi-subtext-small">{html.escape(f"{most_prevalent_condition_count} encounters") if most_prevalent_condition_val != "N/A" else ""}</div>
