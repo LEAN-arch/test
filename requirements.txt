@@ -13,7 +13,7 @@ scikit-learn
 # but pinning can help if there are issues.
 # Fiona often requires specific GDAL versions to be present on the system.
 # Installing geopandas will pull fiona, shapely, pyproj.
-geopandas==0.13.2 # This version is relatively recent and stable
+geopandas # This version is relatively recent and stable
 plotly==5.18.0
 # shapely (will be pulled by geopandas)
 # fiona (will be pulled by geopandas)
