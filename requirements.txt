@@ -3,7 +3,7 @@ pandas==2.1.4     # Or a recent stable 2.x version, or a late 1.5.x
 numpy==1.24.3     # A version known to work well with pandas 2.0.x
 geopandas==0.14.1 # Or a recent stable version
 plotly==5.18.0    # Or a recent stable version
-shapely~=2.0.2    # Often a dependency for geopandas, good to specify
+shapely~=2.0.1    # Often a dependency for geopandas, good to specify
 Fiona==1.9.5
 pyproj==3.6.1
 rtree==1.1.0
