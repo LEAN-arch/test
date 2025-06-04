@@ -1,10 +1,12 @@
 streamlit==1.30.0  # Or a recent stable version
-pandas==2.0.3     # Or a recent stable 2.x version, or a late 1.5.x
+pandas==2.1.4     # Or a recent stable 2.x version, or a late 1.5.x
 numpy==1.24.3     # A version known to work well with pandas 2.0.x
-geopandas==0.13.2 # Or a recent stable version
+geopandas==0.14.1 # Or a recent stable version
 plotly==5.18.0    # Or a recent stable version
-shapely~=2.0.1    # Often a dependency for geopandas, good to specify
-Fiona==1.9.4
+shapely~=2.0.2    # Often a dependency for geopandas, good to specify
+Fiona==1.9.5
+pyproj==3.6.1
+rtree==1.1.0
 matplotlib>=3.7.0 # Add matplotlib, specify a version or range
 scikit-learn
 # For GeoPandas, it's often better to let its dependencies resolve naturally,
