@@ -1,7 +1,7 @@
 streamlit==1.30.0  # Or a recent stable version
-pandas==1.1.0     # Or a recent stable 2.x version, or a late 1.5.x
+pandas     # Or a recent stable 2.x version, or a late 1.5.x
 numpy==1.24.3     # A version known to work well with pandas 2.0.x
-geopandas==0.10.0 # Or a recent stable version
+geopandas # Or a recent stable version
 plotly==5.18.0    # Or a recent stable version
 shapely~=2.0.1    # Often a dependency for geopandas, good to specify
 Fiona==1.9.4
