@@ -1,5 +1,5 @@
 streamlit==1.30.0  # Or a recent stable version
-pandas==2.1.4     # Or a recent stable 2.x version, or a late 1.5.x
+pandas==2.1.0     # Or a recent stable 2.x version, or a late 1.5.x
 numpy==1.24.3     # A version known to work well with pandas 2.0.x
 geopandas==0.14.1 # Or a recent stable version
 plotly==5.18.0    # Or a recent stable version
