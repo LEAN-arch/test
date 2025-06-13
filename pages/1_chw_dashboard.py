@@ -1,151 +1,136 @@
-# test/pages/1_chw_dashboard.py
+# /pages/chw_components/strategic_overview_tab.py
 
-# Standard library imports first
-import os
-import logging
-from datetime import date, timedelta 
-
-# Third-party library imports
-import streamlit as st 
+import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 
-# --- Page Configuration ---
-st.set_page_config(
-    page_title="CHW Dashboard - Health Hub", 
-    layout="wide", 
-    initial_sidebar_state="expanded"
-)
-
-# --- Absolute imports ---
-from config import app_config
-from utils.core_data_processing import (
-    load_health_records,
-    get_chw_summary,
-    get_patient_alerts_for_chw,
-    get_trend_data 
-)
-from utils.ai_analytics_engine import apply_ai_models
-from utils.ui_visualization_helpers import plot_annotated_line_chart
-
-# Component imports
-from pages.chw_components import kpi_snapshots
-from pages.chw_components import epi_watch
-from pages.chw_components import alerts_display
-from pages.chw_components import tasks_display
-from pages.chw_components import trends_display
-
-# ==============================================================================
-# SME ENHANCEMENT FOR GATES FOUNDATION
-# Import the new, self-contained strategic tab component.
-from pages.chw_components import strategic_overview_tab
-# ==============================================================================
-
-logger = logging.getLogger(__name__)
-
-@st.cache_resource
-def load_css_chw():
-    css_path = app_config.STYLE_CSS_PATH
-    if os.path.exists(css_path):
-        with open(css_path) as f: st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-    else: logger.warning(f"CHW CSS file not found: {css_path}.")
-load_css_chw()
-
-@st.cache_data(ttl=app_config.CACHE_TTL_SECONDS, show_spinner="Loading and enriching program data...")
-def get_chw_dashboard_data_enriched():
-    health_df_raw = load_health_records(file_path=app_config.HEALTH_RECORDS_CSV)
-    if health_df_raw.empty: logger.error("CHW: Raw health records load failed."); return pd.DataFrame(), pd.DataFrame(), 0.0, {}
-
-    health_df_ai_enriched = apply_ai_models(health_df_raw)
+def render(period_df, program_targets, chw_monthly_cost):
+    """
+    Renders the entire strategic overview tab.
     
-    # ==============================================================================
-    # SME ENHANCEMENT FOR GATES FOUNDATION
-    # Load strategic financial and target data.
-    chw_monthly_cost = 2000.0  # Default value
-    program_targets = {}
+    Args:
+        period_df (pd.DataFrame): The dataframe filtered for the selected strategic period.
+        program_targets (dict): A dictionary containing program goals.
+        chw_monthly_cost (float): The average monthly cost per CHW.
+    """
+    st.header("📈 Strategic Program Overview")
+    st.markdown(f"Analysis for period: **{period_df['encounter_date_obj'].min().strftime('%d %b %Y')}** to **{period_df['encounter_date_obj'].max().strftime('%d %b %Y')}**")
+
+    if period_df.empty:
+        st.warning("No data available for the selected period to generate a strategic overview.")
+        return
+
+    # --- 1. Top-Line Impact & Cost-Effectiveness ---
+    st.subheader("💰 Program Impact & Cost-Effectiveness")
     
-    try:
-        # In a real app, this data would come from config files or databases
-        costs_df = pd.read_csv(app_config.CHW_COSTS_CSV) 
-        chw_monthly_cost = costs_df['monthly_cost_usd'].mean() if not costs_df.empty else 2000.0
-        program_targets = {"target_cost_per_visit_usd": 5.0, "target_high_risk_follow_up_rate": 0.90, "target_monthly_caseload": 100}
-    except Exception as e:
-        logger.error(f"Could not load strategic cost/target data: {e}")
-    # ==============================================================================
-
-    if health_df_ai_enriched.empty and not health_df_raw.empty: logger.warning("CHW: AI enrichment failed, using raw data."); return health_df_raw, chw_monthly_cost, program_targets
-    elif health_df_ai_enriched.empty: logger.error("CHW: Both raw load and AI enrichment resulted in empty DF."); return pd.DataFrame(), 0.0, {}
+    # Calculate core metrics
+    total_visits = period_df['encounter_id'].nunique()
+    unique_chws_in_period = period_df['chw_id'].nunique()
+    num_months_in_period = (period_df['encounter_date_obj'].max() - period_df['encounter_date_obj'].min()).days / 30.44
+    if num_months_in_period < 1: num_months_in_period = 1 # Avoid division by zero for short periods
     
-    return health_df_ai_enriched, chw_monthly_cost, program_targets
-
-# Unpack the returned data
-health_df_chw_main, chw_monthly_cost, program_targets = get_chw_dashboard_data_enriched()
-
-if health_df_chw_main.empty: st.error("🚨 Critical Error: Could not load CHW data."); st.stop()
-
-st.title("🧑‍⚕️ Community Health Worker (CHW) Dashboard")
-st.markdown("**Daily Patient Prioritization, Field Insights, & Programmatic Impact**"); st.markdown("---")
-
-# Main sidebar configuration (unchanged)
-if os.path.exists(app_config.APP_LOGO):
-    st.sidebar.image(app_config.APP_LOGO, width=230)
-    st.sidebar.markdown("---")
-else:
-    logger.warning(f"Sidebar logo not found on CHW Dashboard at {app_config.APP_LOGO}")
+    # Estimate total cost for the period based on active CHWs
+    estimated_total_cost = unique_chws_in_period * chw_monthly_cost * num_months_in_period
     
-st.sidebar.header("🗓️ Data Filters")
-min_date_overall = date.today() - timedelta(days=365); max_date_overall = date.today()
-# ... (rest of sidebar filter logic remains exactly the same) ...
+    high_risk_patients_identified = period_df[period_df['ai_risk_score'] > 75]['patient_id'].nunique()
+    critical_alerts_generated = len(period_df[period_df['alert_type'] == 'Critical Vitals'])
 
-# The existing date filtering and dataframe preparation logic remains unchanged
-# I'll just copy the final part to ensure clarity
-if 'encounter_date' in health_df_chw_main.columns:
-    health_df_chw_main['encounter_date_obj'] = pd.to_datetime(health_df_chw_main['encounter_date'], errors='coerce').dt.date
-else: health_df_chw_main['encounter_date_obj'] = pd.NaT
-
-selected_trend_start_chw, selected_trend_end_chw = st.sidebar.date_input("Select Date Range for Period Analysis:", value=[max_date_overall - timedelta(days=89), max_date_overall], min_value=min_date_overall, max_value=max_date_overall, key="chw_trend_range_v3")
-selected_view_date_chw = st.sidebar.date_input("View Data For Date:", value=max_date_overall, min_value=min_date_overall, max_value=max_date_overall, key="chw_daily_date_v9")
-
-current_day_chw_df = health_df_chw_main[health_df_chw_main['encounter_date_obj'] == selected_view_date_chw].copy()
-period_health_df_chw = health_df_chw_main[
-    (health_df_chw_main['encounter_date_obj'].notna()) &
-    (health_df_chw_main['encounter_date_obj'] >= selected_trend_start_chw) &
-    (health_df_chw_main['encounter_date_obj'] <= selected_trend_end_chw)
-].copy()
-
-# ... (rest of zone filtering and data preparation logic is unchanged) ...
-chw_daily_kpis = get_chw_summary(current_day_chw_df)
-patient_alerts_tasks_df = get_patient_alerts_for_chw(current_day_chw_df)
-
-
-# ==============================================================================
-# SME ENHANCEMENT FOR GATES FOUNDATION
-# ADD THE STRATEGIC TAB TO THE EXISTING TAB LAYOUT
-# ==============================================================================
-op_tab_title = "🧑‍⚕️ CHW Daily Operations"
-strategic_tab_title = "📊 Strategic Program Overview"
-
-tab_operational, tab_strategic = st.tabs([op_tab_title, strategic_tab_title])
-
-# --- RENDER OPERATIONAL TAB (Existing Content) ---
-with tab_operational:
-    # All the existing UI code for the daily operational view goes here, unchanged.
-    st.subheader(f"Daily Snapshot: {selected_view_date_chw.strftime('%A, %B %d, %Y')}")
-    if current_day_chw_df.empty:
-        st.info(f"ℹ️ No CHW encounter data for {selected_view_date_chw.strftime('%A, %B %d, %Y')}.")
+    cost_per_visit = estimated_total_cost / total_visits if total_visits > 0 else 0
+    cost_per_hr_patient = estimated_total_cost / high_risk_patients_identified if high_risk_patients_identified > 0 else 0
+    cost_per_critical_alert = estimated_total_cost / critical_alerts_generated if critical_alerts_generated > 0 else 0
     
-    kpi_snapshots.render_chw_daily_kpis(chw_daily_kpis, current_day_chw_df)
-    epi_watch.render_chw_epi_watch(current_day_chw_df, chw_daily_kpis, "All Zones", selected_view_date_chw) # Assuming 'selected_chw_zone_daily' is replaced by a global filter
+    # Display KPIs
+    kpi_cols = st.columns(3)
+    with kpi_cols[0]:
+        target_cpv = program_targets.get('target_cost_per_visit_usd', 0)
+        delta_cpv = cost_per_visit - target_cpv if target_cpv > 0 else None
+        st.metric(
+            label="Cost per Visit (USD)", 
+            value=f"${cost_per_visit:.2f}", 
+            delta=f"${delta_cpv:.2f} vs Target" if delta_cpv is not None else None, 
+            delta_color="inverse"
+        )
+    with kpi_cols[1]:
+        st.metric(label="Cost per High-Risk Patient Identified", value=f"${cost_per_hr_patient:.2f}")
+    with kpi_cols[2]:
+        st.metric(label="Investment per Life-Saving Alert", value=f"${cost_per_critical_alert:.2f}")
+
     st.markdown("---")
-    
-    sub_tab_alerts, sub_tab_tasks = st.tabs([f"🚨 Alerts", f"📋 Tasks"])
-    with sub_tab_alerts:
-        alerts_display.render_chw_alerts_tab(patient_alerts_tasks_df, current_day_chw_df, selected_view_date_chw, "All Zones")
-    with sub_tab_tasks:
-        tasks_display.render_chw_tasks_tab(patient_alerts_tasks_df, current_day_chw_df, selected_view_date_chw, "All Zones")
 
-# --- RENDER STRATEGIC TAB (New Content) ---
-with tab_strategic:
-    # Call the render function from our new, self-contained component
-    strategic_overview_tab.render(period_health_df_chw, program_targets, chw_monthly_cost)
-# ==============================================================================
+    # --- 2. Health Equity & Coverage ---
+    st.subheader("🌍 Health Equity & Coverage Analysis")
+    st.markdown("Verifying that our services reach the most vulnerable populations.")
+    
+    equity_cols = st.columns([2, 1])
+    with equity_cols[0]:
+        st.write("**Patient Encounter Distribution by Geographic Zone**")
+        if 'latitude' in period_df.columns and 'longitude' in period_df.columns:
+            map_df = period_df.dropna(subset=['latitude', 'longitude', 'ai_risk_score']).copy()
+            if not map_df.empty:
+                # Add a 'size' column for better visualization on the map
+                map_df['size_for_map'] = map_df['ai_risk_score'] * 0.5 
+                st.map(map_df, latitude='latitude', longitude='longitude', size='size_for_map', color='#ff000088')
+            else:
+                st.caption("No location data to display on map for this period.")
+        else:
+            st.caption("Latitude/Longitude data not available in the dataset.")
+            
+    with equity_cols[1]:
+        st.write("**Reach by Socioeconomic Tier**")
+        if 'socioeconomic_tier' in period_df.columns:
+            ses_counts = period_df.drop_duplicates(subset=['patient_id'])['socioeconomic_tier'].value_counts().reset_index()
+            ses_counts.columns = ['Tier', 'Unique Patients']
+            fig = px.pie(ses_counts, names='Tier', values='Unique Patients', hole=0.4)
+            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.caption("Socioeconomic data not available.")
+
+    st.markdown("---")
+
+    # --- 3. Program Performance vs. Targets ---
+    st.subheader("🎯 Program Performance vs. Targets")
+    
+    perf_cols = st.columns(2)
+    with perf_cols[0]:
+        st.write("**CHW Caseload & Activity**")
+        avg_visits_per_chw = total_visits / unique_chws_in_period if unique_chws_in_period > 0 else 0
+        target_caseload = program_targets.get('target_monthly_caseload', 100) # Assuming 100 as target
+        
+        fig_caseload = go.Figure(go.Indicator(
+            mode = "gauge+number+delta",
+            value = avg_visits_per_chw,
+            title = {'text': "Avg. Visits per CHW (in period)"},
+            delta = {'reference': target_caseload * num_months_in_period, 'reference': target_caseload},
+            gauge = {
+                'axis': {'range': [None, target_caseload * 1.5]},
+                'steps' : [
+                    {'range': [0, target_caseload * 0.5], 'color': "lightgray"},
+                    {'range': [target_caseload * 0.5, target_caseload], 'color': "gray"}],
+                'threshold' : {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': target_caseload}
+            }))
+        fig_caseload.update_layout(height=250, margin=dict(t=40, b=10, l=10, r=10))
+        st.plotly_chart(fig_caseload, use_container_width=True)
+
+    with perf_cols[1]:
+        st.write("**High-Risk Patient Follow-up Rate**")
+        if 'high_risk_follow_up' in period_df.columns:
+            follow_up_rate = period_df['high_risk_follow_up'].mean()
+            target_follow_up = program_targets.get('target_high_risk_follow_up_rate', 0.90)
+            
+            fig_followup = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = follow_up_rate * 100,
+                number = {'suffix': '%'},
+                title = {'text': "Follow-up within 7 days"},
+                gauge = {
+                    'axis': {'range': [None, 100]},
+                    'bar': {'color': "darkblue"},
+                    'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': target_follow_up * 100}
+                }))
+            fig_followup.update_layout(height=250, margin=dict(t=40, b=10, l=10, r=10))
+            st.plotly_chart(fig_followup, use_container_width=True)
+        else:
+            st.caption("Follow-up data not available.")
