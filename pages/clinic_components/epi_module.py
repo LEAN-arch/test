@@ -20,33 +20,27 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
            'encounter_date' in filtered_health_df_clinic.columns:
             
             symptoms_df = filtered_health_df_clinic[['encounter_date', 'patient_reported_symptoms']].copy()
-            # FIX: Avoid inplace=True to prevent SettingWithCopyWarning
             symptoms_df = symptoms_df.dropna(subset=['patient_reported_symptoms', 'encounter_date'])
-            symptoms_df = symptoms_df[~symptoms_df['patient_reported_symptoms'].str.lower().isin(["unknown", "n/a", "none"])] # Exclude generic unknowns
+            symptoms_df = symptoms_df[~symptoms_df['patient_reported_symptoms'].str.lower().isin(["unknown", "n/a", "none"])]
 
             if not symptoms_df.empty:
-                # Explode semi-colon separated symptoms and clean them
                 symptoms_exploded = symptoms_df.assign(symptom=symptoms_df['patient_reported_symptoms'].str.split(';')) \
                                                .explode('symptom')
                 symptoms_exploded['symptom'] = symptoms_exploded['symptom'].str.strip().str.title()
-                # FIX: Avoid inplace=True
                 symptoms_exploded = symptoms_exploded.dropna(subset=['symptom'])
-                symptoms_exploded = symptoms_exploded[symptoms_exploded['symptom'] != ''] # Remove empty strings after split
+                symptoms_exploded = symptoms_exploded[symptoms_exploded['symptom'] != '']
                 
                 if not symptoms_exploded.empty:
                     top_n_symptoms = symptoms_exploded['symptom'].value_counts().nlargest(5).index.tolist()
-                    symptoms_to_plot = symptoms_exploded[symptoms_exploded['symptom'].isin(top_n_symptoms)].copy() # Use .copy() to be explicit
+                    symptoms_to_plot = symptoms_exploded[symptoms_exploded['symptom'].isin(top_n_symptoms)].copy()
                     
                     if not symptoms_to_plot.empty:
-                        # Ensure 'encounter_date' is datetime for get_trend_data
                         if not pd.api.types.is_datetime64_ns_dtype(symptoms_to_plot['encounter_date']):
-                             # FIX: Use .loc for assignment to avoid SettingWithCopyWarning
                              symptoms_to_plot['encounter_date'] = pd.to_datetime(symptoms_to_plot['encounter_date'], errors='coerce')
                              symptoms_to_plot = symptoms_to_plot.dropna(subset=['encounter_date'])
 
                         if not symptoms_to_plot.empty:
                             symptom_trends_data = symptoms_to_plot.groupby([pd.Grouper(key='encounter_date', freq='W-Mon'), 'symptom']).size().reset_index(name='count')
-                            # FIX: Avoid inplace=True
                             symptom_trends_data = symptom_trends_data.rename(columns={'encounter_date': 'week_start_date'})
                             fig_symptoms = plot_bar_chart(symptom_trends_data, x_col='week_start_date', y_col='count', color_col='symptom', title="Weekly Symptom Frequency (Top 5)", barmode='group', height=app_config.DEFAULT_PLOT_HEIGHT, y_axis_title="Number of Mentions", x_axis_title="Week Start", y_is_count=True, text_format='d')
                             st.plotly_chart(fig_symptoms, use_container_width=True)
@@ -58,7 +52,7 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
 
     with epi_cols_clinic[1]:
         st.subheader("Test Positivity Rate Trends")
-        mal_rdt_key_config = "RDT-Malaria" 
+        mal_rdt_key_config = "RDT-Malaria"
         mal_rdt_display = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(mal_rdt_key_config, {}).get("display_name", "Malaria RDT")
         
         if 'test_type' in filtered_health_df_clinic.columns and 'test_result' in filtered_health_df_clinic.columns:
@@ -68,11 +62,9 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
             ].copy()
 
             if not malaria_df_trend.empty and 'encounter_date' in malaria_df_trend.columns:
-                # FIX: Use .loc for assignment on the copy
                 malaria_df_trend['is_positive'] = (malaria_df_trend['test_result'] == 'Positive')
                 if not pd.api.types.is_datetime64_ns_dtype(malaria_df_trend['encounter_date']):
                     malaria_df_trend['encounter_date'] = pd.to_datetime(malaria_df_trend['encounter_date'], errors='coerce')
-                # FIX: Avoid inplace=True
                 malaria_df_trend = malaria_df_trend.dropna(subset=['encounter_date'])
                 
                 if not malaria_df_trend.empty:
@@ -101,7 +93,6 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
            not condition_df_demog_source_clinic.empty:
             
             cond_df_demog_copy = condition_df_demog_source_clinic.copy()
-            # FIX: Avoid inplace=True
             cond_df_demog_copy = cond_df_demog_copy.sort_values('encounter_date')
             new_cases_demog_df_clinic = cond_df_demog_copy.drop_duplicates(subset=['patient_id', 'condition'], keep='first')
 
@@ -111,7 +102,6 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
                 if 'age' in new_cases_demog_df_clinic.columns and new_cases_demog_df_clinic['age'].notna().any():
                     age_bins_clinic = [0, 5, 18, 35, 50, 65, np.inf]; age_labels_clinic = ['0-4', '5-17', '18-34', '35-49', '50-64', '65+']
                     new_cases_demog_df_clinic_age = new_cases_demog_df_clinic.copy()
-                    # FIX: Use .loc for assignment on the copy
                     new_cases_demog_df_clinic_age['age_group_clinic_epi_display'] = pd.cut(new_cases_demog_df_clinic_age['age'], bins=age_bins_clinic, labels=age_labels_clinic, right=False)
                     age_dist_demog_clinic = new_cases_demog_df_clinic_age['age_group_clinic_epi_display'].value_counts().sort_index().reset_index()
                     age_dist_demog_clinic.columns = ['Age Group', 'New Cases']
