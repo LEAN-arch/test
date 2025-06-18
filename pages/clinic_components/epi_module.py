@@ -1,4 +1,3 @@
-# test/pages/clinic_components/epi_module.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -21,30 +20,34 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
            'encounter_date' in filtered_health_df_clinic.columns:
             
             symptoms_df = filtered_health_df_clinic[['encounter_date', 'patient_reported_symptoms']].copy()
-            symptoms_df.dropna(subset=['patient_reported_symptoms', 'encounter_date'], inplace=True)
-            symptoms_df = symptoms_df[symptoms_df['patient_reported_symptoms'].str.lower().isin(["unknown", "n/a", "none"]) == False] # Exclude generic unknowns
+            # FIX: Avoid inplace=True to prevent SettingWithCopyWarning
+            symptoms_df = symptoms_df.dropna(subset=['patient_reported_symptoms', 'encounter_date'])
+            symptoms_df = symptoms_df[~symptoms_df['patient_reported_symptoms'].str.lower().isin(["unknown", "n/a", "none"])] # Exclude generic unknowns
 
             if not symptoms_df.empty:
                 # Explode semi-colon separated symptoms and clean them
                 symptoms_exploded = symptoms_df.assign(symptom=symptoms_df['patient_reported_symptoms'].str.split(';')) \
                                                .explode('symptom')
                 symptoms_exploded['symptom'] = symptoms_exploded['symptom'].str.strip().str.title()
-                symptoms_exploded.dropna(subset=['symptom'], inplace=True)
+                # FIX: Avoid inplace=True
+                symptoms_exploded = symptoms_exploded.dropna(subset=['symptom'])
                 symptoms_exploded = symptoms_exploded[symptoms_exploded['symptom'] != ''] # Remove empty strings after split
                 
                 if not symptoms_exploded.empty:
                     top_n_symptoms = symptoms_exploded['symptom'].value_counts().nlargest(5).index.tolist()
-                    symptoms_to_plot = symptoms_exploded[symptoms_exploded['symptom'].isin(top_n_symptoms)]
+                    symptoms_to_plot = symptoms_exploded[symptoms_exploded['symptom'].isin(top_n_symptoms)].copy() # Use .copy() to be explicit
                     
                     if not symptoms_to_plot.empty:
                         # Ensure 'encounter_date' is datetime for get_trend_data
                         if not pd.api.types.is_datetime64_ns_dtype(symptoms_to_plot['encounter_date']):
-                             symptoms_to_plot.loc[:, 'encounter_date'] = pd.to_datetime(symptoms_to_plot['encounter_date'], errors='coerce')
+                             # FIX: Use .loc for assignment to avoid SettingWithCopyWarning
+                             symptoms_to_plot['encounter_date'] = pd.to_datetime(symptoms_to_plot['encounter_date'], errors='coerce')
                              symptoms_to_plot = symptoms_to_plot.dropna(subset=['encounter_date'])
 
                         if not symptoms_to_plot.empty:
                             symptom_trends_data = symptoms_to_plot.groupby([pd.Grouper(key='encounter_date', freq='W-Mon'), 'symptom']).size().reset_index(name='count')
-                            symptom_trends_data.rename(columns={'encounter_date': 'week_start_date'}, inplace=True)
+                            # FIX: Avoid inplace=True
+                            symptom_trends_data = symptom_trends_data.rename(columns={'encounter_date': 'week_start_date'})
                             fig_symptoms = plot_bar_chart(symptom_trends_data, x_col='week_start_date', y_col='count', color_col='symptom', title="Weekly Symptom Frequency (Top 5)", barmode='group', height=app_config.DEFAULT_PLOT_HEIGHT, y_axis_title="Number of Mentions", x_axis_title="Week Start", y_is_count=True, text_format='d')
                             st.plotly_chart(fig_symptoms, use_container_width=True)
                         else: st.caption("No valid date data for symptom trends.")
@@ -55,7 +58,7 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
 
     with epi_cols_clinic[1]:
         st.subheader("Test Positivity Rate Trends")
-        mal_rdt_key_config = "RDT-Malaria" # Should match a key in app_config.KEY_TEST_TYPES_FOR_ANALYSIS
+        mal_rdt_key_config = "RDT-Malaria" 
         mal_rdt_display = app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(mal_rdt_key_config, {}).get("display_name", "Malaria RDT")
         
         if 'test_type' in filtered_health_df_clinic.columns and 'test_result' in filtered_health_df_clinic.columns:
@@ -65,15 +68,17 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
             ].copy()
 
             if not malaria_df_trend.empty and 'encounter_date' in malaria_df_trend.columns:
-                malaria_df_trend.loc[:, 'is_positive'] = malaria_df_trend['test_result'] == 'Positive'
+                # FIX: Use .loc for assignment on the copy
+                malaria_df_trend['is_positive'] = (malaria_df_trend['test_result'] == 'Positive')
                 if not pd.api.types.is_datetime64_ns_dtype(malaria_df_trend['encounter_date']):
-                    malaria_df_trend.loc[:,'encounter_date'] = pd.to_datetime(malaria_df_trend['encounter_date'], errors='coerce')
-                malaria_df_trend.dropna(subset=['encounter_date'], inplace=True)
+                    malaria_df_trend['encounter_date'] = pd.to_datetime(malaria_df_trend['encounter_date'], errors='coerce')
+                # FIX: Avoid inplace=True
+                malaria_df_trend = malaria_df_trend.dropna(subset=['encounter_date'])
                 
                 if not malaria_df_trend.empty:
                     weekly_malaria_pos_rate = get_trend_data(malaria_df_trend, value_col='is_positive', date_col='encounter_date', period='W-Mon', agg_func='mean') * 100
                     if not weekly_malaria_pos_rate.empty:
-                        st.plotly_chart(plot_annotated_line_chart(weekly_malaria_pos_rate, f"Weekly {mal_rdt_display} Positivity Rate", y_axis_title="Positivity Rate (%)", target_line=app_config.TARGET_MALARIA_POSITIVITY_RATE, height=app_config.COMPACT_PLOT_HEIGHT, y_is_count=False), use_container_width=True) # y_is_count=False for rates
+                        st.plotly_chart(plot_annotated_line_chart(weekly_malaria_pos_rate, f"Weekly {mal_rdt_display} Positivity Rate", y_axis_title="Positivity Rate (%)", target_line=app_config.TARGET_MALARIA_POSITIVITY_RATE, height=app_config.COMPACT_PLOT_HEIGHT, y_is_count=False), use_container_width=True)
                     else: st.caption(f"No aggregated positivity trend data for {mal_rdt_display}.")
                 else: st.caption(f"No valid date data for {mal_rdt_display} positivity trend after cleaning.")
             else: st.caption(f"No valid test data for {mal_rdt_display} in this period.")
@@ -95,8 +100,9 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
            'condition' in condition_df_demog_source_clinic.columns and \
            not condition_df_demog_source_clinic.empty:
             
-            cond_df_demog_copy = condition_df_demog_source_clinic.copy() # Work on a copy
-            cond_df_demog_copy.sort_values('encounter_date', inplace=True)
+            cond_df_demog_copy = condition_df_demog_source_clinic.copy()
+            # FIX: Avoid inplace=True
+            cond_df_demog_copy = cond_df_demog_copy.sort_values('encounter_date')
             new_cases_demog_df_clinic = cond_df_demog_copy.drop_duplicates(subset=['patient_id', 'condition'], keep='first')
 
         if not new_cases_demog_df_clinic.empty:
@@ -105,7 +111,8 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
                 if 'age' in new_cases_demog_df_clinic.columns and new_cases_demog_df_clinic['age'].notna().any():
                     age_bins_clinic = [0, 5, 18, 35, 50, 65, np.inf]; age_labels_clinic = ['0-4', '5-17', '18-34', '35-49', '50-64', '65+']
                     new_cases_demog_df_clinic_age = new_cases_demog_df_clinic.copy()
-                    new_cases_demog_df_clinic_age.loc[:, 'age_group_clinic_epi_display'] = pd.cut(new_cases_demog_df_clinic_age['age'], bins=age_bins_clinic, labels=age_labels_clinic, right=False)
+                    # FIX: Use .loc for assignment on the copy
+                    new_cases_demog_df_clinic_age['age_group_clinic_epi_display'] = pd.cut(new_cases_demog_df_clinic_age['age'], bins=age_bins_clinic, labels=age_labels_clinic, right=False)
                     age_dist_demog_clinic = new_cases_demog_df_clinic_age['age_group_clinic_epi_display'].value_counts().sort_index().reset_index()
                     age_dist_demog_clinic.columns = ['Age Group', 'New Cases']
                     if not age_dist_demog_clinic.empty: st.plotly_chart(plot_bar_chart(age_dist_demog_clinic, 'Age Group', 'New Cases', f"{selected_condition_demog_clinic} - Cases by Age Group", height=300, y_is_count=True, text_format='d'), use_container_width=True)
@@ -125,8 +132,8 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
     st.markdown("---")
     st.subheader("Referral Funnel Analysis (Simplified)")
     if 'referral_status' in filtered_health_df_clinic.columns and filtered_health_df_clinic['referral_status'].notna().any() and \
-       'encounter_id' in filtered_health_df_clinic.columns: # Need encounter_id for nunique
-        referral_df_funnel_epi = filtered_health_df_clinic[filtered_health_df_clinic['referral_status'].str.lower().isin(['pending', 'completed', 'initiated', 'service provided', 'attended', 'missed appointment', 'declined'])].copy() # Filter known, actionable statuses
+       'encounter_id' in filtered_health_df_clinic.columns:
+        referral_df_funnel_epi = filtered_health_df_clinic[filtered_health_df_clinic['referral_status'].str.lower().isin(['pending', 'completed', 'initiated', 'service provided', 'attended', 'missed appointment', 'declined'])].copy()
         if not referral_df_funnel_epi.empty:
             total_referrals_made_epi = referral_df_funnel_epi['encounter_id'].nunique()
             completed_referrals_epi = 0
@@ -139,10 +146,10 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
                 {'Stage': 'Referrals Completed (Outcome)', 'Count': completed_referrals_epi},
                 {'Stage': 'Referrals Still Pending', 'Count': pending_referrals_epi},
             ])
-            # Remove stages with zero count for cleaner plot if they are not the first stage
+            
             funnel_data_epi_plot = funnel_data_epi[funnel_data_epi['Count'] > 0]
-            if funnel_data_epi_plot.empty and total_referrals_made_epi > 0 : # if all counts are 0 but referrals were made
-                 funnel_data_epi_plot = funnel_data_epi.head(1) # Show at least "Referrals Made"
+            if funnel_data_epi_plot.empty and total_referrals_made_epi > 0 :
+                 funnel_data_epi_plot = funnel_data_epi.head(1)
 
             if not funnel_data_epi_plot.empty :
                  st.plotly_chart(plot_bar_chart(funnel_data_epi_plot, 'Stage', 'Count', "Referral Funnel Stages", height=350, y_axis_title="Number of Referrals", orientation='v', y_is_count=True, text_format='d'), use_container_width=True)
