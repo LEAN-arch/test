@@ -98,11 +98,13 @@ min_date_overall_clinic = date.today() - timedelta(days=365*2); max_date_overall
 all_timestamps_for_range_clinic = []
 if health_data_available and 'encounter_date' in health_df_clinic_main.columns:
     ts_health_clinic = pd.to_datetime(health_df_clinic_main['encounter_date'], errors='coerce')
-    if pd.api.types.is_datetime64tz_dtype(ts_health_clinic): ts_health_clinic = ts_health_clinic.dt.tz_localize(None)
+    if isinstance(ts_health_clinic.dtype, pd.DatetimeTZDtype):
+    ts_health_clinic = ts_health_clinic.dt.tz_convert(None) # Use tz_convert(None) for safety
     all_timestamps_for_range_clinic.extend(ts_health_clinic.dropna())
 if iot_data_available and 'timestamp' in iot_df_clinic_main.columns:
     ts_iot_clinic = pd.to_datetime(iot_df_clinic_main['timestamp'], errors='coerce')
-    if pd.api.types.is_datetime64tz_dtype(ts_iot_clinic): ts_iot_clinic = ts_iot_clinic.dt.tz_localize(None)
+    if isinstance(ts_iot_clinic.dtype, pd.DatetimeTZDtype):
+    ts_iot_clinic = ts_iot_clinic.dt.tz_convert(None)
     all_timestamps_for_range_clinic.extend(ts_iot_clinic.dropna())
 if all_timestamps_for_range_clinic: 
     min_date_overall_clinic = min(all_timestamps_for_range_clinic).date()
