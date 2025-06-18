@@ -35,14 +35,11 @@ def hash_geodataframe(gdf: gpd.GeoDataFrame) -> Optional[str]:
         return None
     try:
         geom_col_name = gdf.geometry.name if hasattr(gdf, 'geometry') and hasattr(gdf.geometry, 'name') else 'geometry'
-        non_geom_cols_present = []
+        non_geom_cols_present = [col for col in gdf.columns if col != geom_col_name]
+        
         geom_hash_val = 0
         if geom_col_name in gdf.columns and hasattr(gdf[geom_col_name], 'is_empty') and not gdf[geom_col_name].is_empty.all():
-            non_geom_cols_present = gdf.drop(columns=[geom_col_name], errors='ignore').columns.tolist()
-            if hasattr(gdf[geom_col_name], 'to_wkt') and not gdf[geom_col_name].is_empty.all():
-                geom_hash_val = pd.util.hash_array(gdf[geom_col_name].to_wkt().values).sum()
-        else:
-            non_geom_cols_present = gdf.columns.tolist()
+            geom_hash_val = pd.util.hash_array(gdf[geom_col_name].to_wkt().values).sum()
             
         df_to_hash = gdf[non_geom_cols_present].copy()
         for col in df_to_hash.select_dtypes(include=['datetime64', 'datetime64[ns]', 'datetime64[ns, UTC]']).columns:
@@ -82,11 +79,9 @@ def _robust_merge_agg(left_df: pd.DataFrame, right_df: pd.DataFrame, target_col_
     merged_df = left_df_for_merge.merge(right_df_for_merge, on=on_col, how='left')
     
     if temp_agg_col in merged_df.columns:
-        # Correctly use .combine_first without inplace modification on a slice
         merged_df[target_col_name] = merged_df[temp_agg_col].combine_first(merged_df[target_col_name])
         merged_df.drop(columns=[temp_agg_col], inplace=True, errors='ignore')
 
-    # Correctly fill NaNs by reassigning the column to avoid SettingWithCopyWarning
     merged_df[target_col_name] = merged_df[target_col_name].fillna(default_fill_value)
     
     if left_df_reset_needed:
@@ -186,7 +181,7 @@ def enrich_zone_geodata_with_health_aggregates(zone_gdf: gpd.GeoDataFrame, healt
             if not tat_df_en.empty:
                 enriched = _robust_merge_agg(enriched, tat_df_en.groupby('zone_id')['test_turnaround_days'].mean().reset_index(), 'avg_test_turnaround_critical', default_fill_value=np.nan)
                 def _ctm_e(r): cfg=app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(r['test_type']); return r['test_turnaround_days']<=(cfg['target_tat_days'] if cfg and 'target_tat_days' in cfg else app_config.TARGET_TEST_TURNAROUND_DAYS)
-                tat_df_en['tm_f_e'] = tat_df_en.apply(_ctm_e, axis=1) # Use direct assignment to avoid SettingWithCopyWarning
+                tat_df_en['tm_f_e'] = tat_df_en.apply(_ctm_e, axis=1)
                 pm_agg_e = tat_df_en.groupby('zone_id')['tm_f_e'].mean().reset_index().rename(columns={'tm_f_e':'val_merge'})
                 enriched = _robust_merge_agg(enriched, pm_agg_e, 'perc_critical_tests_tat_met')
                 if 'perc_critical_tests_tat_met' in enriched.columns: enriched['perc_critical_tests_tat_met'] = enriched['perc_critical_tests_tat_met'] * 100
@@ -203,7 +198,8 @@ def get_overall_kpis(health_df: pd.DataFrame, date_filter_start: Optional[str]=N
     if health_df is None or health_df.empty: return kpis
     df = health_df.copy()
     if 'encounter_date' not in df.columns or df['encounter_date'].isnull().all(): return kpis
-    df['encounter_date'] = pd.to_datetime(df['encounter_date'], errors='coerce'); df.dropna(subset=['encounter_date'], inplace=True)
+    df['encounter_date'] = pd.to_datetime(df['encounter_date'], errors='coerce')
+    df = df.dropna(subset=['encounter_date'])
     start_date_dt = pd.to_datetime(date_filter_start, errors='coerce') if date_filter_start else None
     end_date_dt = pd.to_datetime(date_filter_end, errors='coerce') if date_filter_end else None
     if start_date_dt: df = df[df['encounter_date'] >= start_date_dt]
@@ -215,58 +211,64 @@ def get_overall_kpis(health_df: pd.DataFrame, date_filter_start: Optional[str]=N
     if 'condition' in df.columns: kpis["active_tb_cases_current"] = df[df['condition'].str.contains("TB", case=False, na=False)]['patient_id'].nunique()
     
     for test_key_conf, kpi_name_conf in [("RDT-Malaria", "malaria_rdt_positive_rate_period"), ("HIV-Rapid", "hiv_rapid_positive_rate_period")]:
-        test_type_val_in_data = test_key_conf # Assuming data column 'test_type' holds original keys
+        test_type_val_in_data = test_key_conf
         test_df = df[(df.get('test_type') == test_type_val_in_data) & (~df.get('test_result', pd.Series(dtype=str)).isin(["Pending", "Rejected Sample", "Unknown"]))]
-        if not test_df.empty and len(test_df) > 0: kpis[kpi_name_conf] = (test_df[test_df['test_result'] == 'Positive'].shape[0] / len(test_df)) * 100
+        if not test_df.empty: kpis[kpi_name_conf] = (test_df[test_df['test_result'] == 'Positive'].shape[0] / len(test_df)) * 100
     
     if all(c in df for c in ['item','item_stock_agg_zone','consumption_rate_per_day', 'encounter_date']):
-        s_df = df.sort_values('encounter_date').drop_duplicates(subset=['item','zone_id'], keep='last') # zone_id relevant for item_stock_agg_zone
-        s_df['days_supply'] = s_df['item_stock_agg_zone'] / (s_df['consumption_rate_per_day'].replace(0,np.nan)); s_df.dropna(subset=['days_supply'],inplace=True)
+        s_df = df.sort_values('encounter_date').drop_duplicates(subset=['item','zone_id'], keep='last')
+        s_df = s_df.assign(days_supply = s_df['item_stock_agg_zone'] / s_df['consumption_rate_per_day'].replace(0, np.nan))
+        s_df = s_df.dropna(subset=['days_supply'])
         kpis['key_supply_stockout_alerts'] = s_df[s_df['days_supply'] < app_config.CRITICAL_SUPPLY_DAYS]['item'].nunique()
     return kpis
 
 def get_chw_summary(health_df_daily: pd.DataFrame) -> Dict[str, Any]:
     summary = {"visits_today":0,"tb_contacts_to_trace_today":0,"sti_symptomatic_referrals_today":0,"avg_patient_risk_visited_today":np.nan,"high_risk_followups_today":0,"patients_low_spo2_visited_today":0,"patients_fever_visited_today":0,"avg_patient_steps_visited_today":np.nan,"patients_fall_detected_today":0}
     if health_df_daily is None or health_df_daily.empty: return summary
-    chw_enc_df = health_df_daily.copy() # Caller should ideally pre-filter if specific CHW filtering is needed beyond day/zone.
+    chw_enc_df = health_df_daily.copy()
     summary["visits_today"]=chw_enc_df['patient_id'].nunique()
-    if all(c in chw_enc_df for c in ['condition','referral_reason','referral_status']): summary["tb_contacts_to_trace_today"]=chw_enc_df[(chw_enc_df['condition'].str.contains('TB',na=False,case=False))&(chw_enc_df['referral_reason'].str.contains("Contact Tracing|Investigation",case=False,na=False))&(chw_enc_df['referral_status']=='Pending')]['patient_id'].nunique(); summary["sti_symptomatic_referrals_today"]=chw_enc_df[(chw_enc_df['condition'].str.contains("STI",case=False,na=False))&(chw_enc_df.get('patient_reported_symptoms',pd.Series(dtype=str)).astype(str).str.lower()!="unknown")&(chw_enc_df['referral_status']=='Pending')]['patient_id'].nunique()
-    if 'ai_risk_score' in chw_enc_df and chw_enc_df['ai_risk_score'].notna().any(): summary["avg_patient_risk_visited_today"]=chw_enc_df['ai_risk_score'].mean(); summary["high_risk_followups_today"]=chw_enc_df[chw_enc_df['ai_risk_score']>=app_config.RISK_THRESHOLDS.get('high',75)]['patient_id'].nunique()
-    if 'min_spo2_pct' in chw_enc_df: summary["patients_low_spo2_visited_today"]=chw_enc_df[chw_enc_df['min_spo2_pct'] < app_config.SPO2_LOW_THRESHOLD_PCT]['patient_id'].nunique()
+    if all(c in chw_enc_df for c in ['condition','referral_reason','referral_status']): 
+        summary["tb_contacts_to_trace_today"]=chw_enc_df[(chw_enc_df['condition'].str.contains('TB',na=False,case=False))&(chw_enc_df['referral_reason'].str.contains("Contact Tracing|Investigation",case=False,na=False))&(chw_enc_df['referral_status']=='Pending')]['patient_id'].nunique()
+        summary["sti_symptomatic_referrals_today"]=chw_enc_df[(chw_enc_df['condition'].str.contains("STI",case=False,na=False))&(chw_enc_df.get('patient_reported_symptoms',pd.Series(dtype=str)).astype(str).str.lower()!="unknown")&(chw_enc_df['referral_status']=='Pending')]['patient_id'].nunique()
+    if 'ai_risk_score' in chw_enc_df and chw_enc_df['ai_risk_score'].notna().any(): 
+        summary["avg_patient_risk_visited_today"]=chw_enc_df['ai_risk_score'].mean()
+        summary["high_risk_followups_today"]=chw_enc_df[chw_enc_df['ai_risk_score']>=app_config.RISK_THRESHOLDS.get('high',75)]['patient_id'].nunique()
+    if 'min_spo2_pct' in chw_enc_df: 
+        summary["patients_low_spo2_visited_today"]=chw_enc_df[chw_enc_df['min_spo2_pct'] < app_config.SPO2_LOW_THRESHOLD_PCT]['patient_id'].nunique()
     temp_col = next((tc for tc in ['vital_signs_temperature_celsius','max_skin_temp_celsius'] if tc in chw_enc_df and chw_enc_df[tc].notna().any()), None)
-    if temp_col: summary["patients_fever_visited_today"]=chw_enc_df[chw_enc_df[temp_col]>=app_config.SKIN_TEMP_FEVER_THRESHOLD_C]['patient_id'].nunique()
-    if 'avg_daily_steps' in chw_enc_df and chw_enc_df['avg_daily_steps'].notna().any(): summary["avg_patient_steps_visited_today"]=chw_enc_df['avg_daily_steps'].mean()
-    if 'fall_detected_today' in chw_enc_df and chw_enc_df['fall_detected_today'].notna().any(): summary["patients_fall_detected_today"]=chw_enc_df[chw_enc_df['fall_detected_today'] > 0]['patient_id'].nunique()
+    if temp_col: 
+        summary["patients_fever_visited_today"]=chw_enc_df[chw_enc_df[temp_col]>=app_config.SKIN_TEMP_FEVER_THRESHOLD_C]['patient_id'].nunique()
+    if 'avg_daily_steps' in chw_enc_df and chw_enc_df['avg_daily_steps'].notna().any(): 
+        summary["avg_patient_steps_visited_today"]=chw_enc_df['avg_daily_steps'].mean()
+    if 'fall_detected_today' in chw_enc_df and chw_enc_df['fall_detected_today'].notna().any(): 
+        summary["patients_fall_detected_today"]=chw_enc_df[chw_enc_df['fall_detected_today'] > 0]['patient_id'].nunique()
     return summary
 
 def get_patient_alerts_for_chw(health_df_daily: pd.DataFrame, risk_threshold_moderate: int = app_config.RISK_THRESHOLDS['chw_alert_moderate'], risk_threshold_high: int = app_config.RISK_THRESHOLDS['chw_alert_high']) -> pd.DataFrame:
     if health_df_daily is None or health_df_daily.empty: return pd.DataFrame()
-    alerts = []; df_alerts = health_df_daily.copy(); 
+    alerts = []; df_alerts = health_df_daily.copy()
     cols_needed = ['patient_id','ai_risk_score','ai_followup_priority_score','min_spo2_pct','vital_signs_temperature_celsius','max_skin_temp_celsius','condition','referral_status','fall_detected_today','encounter_date']
-    for c in cols_needed: # Ensure columns exist with appropriate defaults
-        df_alerts[c] = df_alerts.get(c, pd.Series(dtype = ('datetime64[ns]' if c == 'encounter_date' else (float if c in ['ai_risk_score','ai_followup_priority_score','min_spo2_pct','vital_signs_temperature_celsius','max_skin_temp_celsius','fall_detected_today'] else object) ) ) )
-        if df_alerts[c].dtype == object and c not in ['encounter_date']: df_alerts[c] = df_alerts[c].fillna("Unknown")
-    
+    for c in cols_needed:
+        if c not in df_alerts.columns:
+            dtype = 'datetime64[ns]' if c == 'encounter_date' else (float if 'score' in c or 'pct' in c or 'temp' in c else object)
+            df_alerts[c] = pd.Series(dtype=dtype)
+        df_alerts[c] = df_alerts[c].fillna("Unknown" if df_alerts[c].dtype == object else np.nan)
+
     if df_alerts['ai_followup_priority_score'].notna().any(): list(alerts.append({**r.to_dict(), 'alert_reason':"High AI Prio", 'priority_score':r['ai_followup_priority_score']}) for _,r in df_alerts[df_alerts['ai_followup_priority_score']>=80].iterrows())
     if df_alerts['min_spo2_pct'].notna().any(): list(alerts.append({**r.to_dict(), 'alert_reason':f"Crit SpO2 ({r['min_spo2_pct']}%)", 'priority_score':90+(app_config.SPO2_CRITICAL_THRESHOLD_PCT-r['min_spo2_pct'])}) for _,r in df_alerts[df_alerts['min_spo2_pct'] < app_config.SPO2_CRITICAL_THRESHOLD_PCT].iterrows())
     temp_c = next((tc for tc in ['vital_signs_temperature_celsius','max_skin_temp_celsius'] if tc in df_alerts and df_alerts[tc].notna().any()),None)
-    if temp_c and df_alerts[temp_c].notna().any(): list(alerts.append({**r.to_dict(), 'alert_reason':f"High Fever ({r[temp_c]}°C)", 'priority_score':85+(r[temp_c]-(app_config.SKIN_TEMP_FEVER_THRESHOLD_C+1.0))}) for _,r in df_alerts[df_alerts[temp_c] >= app_config.SKIN_TEMP_FEVER_THRESHOLD_C+1.0].iterrows())
+    if temp_c: list(alerts.append({**r.to_dict(), 'alert_reason':f"High Fever ({r[temp_c]}°C)", 'priority_score':85+(r[temp_c]-(app_config.SKIN_TEMP_FEVER_THRESHOLD_C+1.0))}) for _,r in df_alerts[df_alerts[temp_c] >= app_config.SKIN_TEMP_FEVER_THRESHOLD_C+1.0].iterrows())
     if 'fall_detected_today' in df_alerts and df_alerts['fall_detected_today'].notna().any(): list(alerts.append({**r.to_dict(),'alert_reason':"Fall Detect",'priority_score':88}) for _,r in df_alerts[df_alerts['fall_detected_today']>0].iterrows())
     if 'ai_risk_score' in df_alerts and df_alerts['ai_risk_score'].notna().any(): list(alerts.append({**r.to_dict(),'alert_reason':"High AI Risk",'priority_score':r['ai_risk_score']}) for _,r in df_alerts[df_alerts['ai_risk_score']>=risk_threshold_high].iterrows())
-    if 'condition' in df_alerts and 'referral_status' in df_alerts : list(alerts.append({**r.to_dict(),'alert_reason':f"Pend Ref: {r['condition']}",'priority_score':70}) for _,r in df_alerts[(df_alerts['condition'].isin(app_config.KEY_CONDITIONS_FOR_TRENDS[:4]))&(df_alerts['referral_status']=='Pending')].iterrows())
+    if 'condition' in df_alerts and 'referral_status' in df_alerts: list(alerts.append({**r.to_dict(),'alert_reason':f"Pend Ref: {r['condition']}",'priority_score':70}) for _,r in df_alerts[(df_alerts['condition'].isin(app_config.KEY_CONDITIONS_FOR_TRENDS[:4]))&(df_alerts['referral_status']=='Pending')].iterrows())
     if 'ai_risk_score' in df_alerts and df_alerts['ai_risk_score'].notna().any(): list(alerts.append({**r.to_dict(),'alert_reason':"Mod AI Risk",'priority_score':r['ai_risk_score']}) for _,r in df_alerts[(df_alerts['ai_risk_score']>=risk_threshold_moderate)&(df_alerts['ai_risk_score']<risk_threshold_high)].iterrows())
     
     if not alerts: return pd.DataFrame(columns=cols_needed + ['alert_reason', 'priority_score'])
     alert_df_final = pd.DataFrame(alerts)
-    alert_df_final['encounter_date'] = pd.to_datetime(alert_df_final.get('encounter_date'), errors='coerce')
-    
-    # Use direct assignment to avoid SettingWithCopyWarning
-    alert_df_final = alert_df_final.drop_duplicates(subset=['patient_id', 'alert_reason', 'encounter_date'])
+    alert_df_final['encounter_date'] = pd.to_datetime(alert_df_final['encounter_date'], errors='coerce')
+    alert_df_final = alert_df_final.drop_duplicates(subset=['patient_id', 'alert_reason', pd.to_datetime(alert_df_final['encounter_date']).dt.date])
     alert_df_final['priority_score'] = alert_df_final.get('priority_score', 0).fillna(0).astype(int)
-    
-    sort_c_final = ['priority_score', 'encounter_date']
-    sort_asc_flags = [False, False]
-    return alert_df_final.sort_values(by=sort_c_final, ascending=sort_asc_flags)
+    return alert_df_final.sort_values(by=['priority_score', 'encounter_date'], ascending=[False, False])
 
 def get_clinic_summary(health_df_period: pd.DataFrame) -> Dict[str, Any]:
     summary: Dict[str,Any]={"overall_avg_test_turnaround":np.nan, "overall_perc_met_tat":0.0, "total_pending_critical_tests":0, "sample_rejection_rate":0.0, "key_drug_stockouts":0, "test_summary_details":{}}; 
@@ -284,13 +286,13 @@ def get_clinic_summary(health_df_period: pd.DataFrame) -> Dict[str, Any]:
     crit_concl_df = concl_df[concl_df['test_type'].isin(crit_keys_in_data)].copy()
     if not crit_concl_df.empty:
         def _chk_tat_s(r): cfg_s=app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(r['test_type']); return r['test_turnaround_days']<=(cfg_s['target_tat_days'] if cfg_s and 'target_tat_days' in cfg_s else app_config.TARGET_TEST_TURNAROUND_DAYS)
-        crit_concl_df['tat_met'] = crit_concl_df.apply(_chk_tat_s,axis=1) # Use direct assignment
+        crit_concl_df['tat_met'] = crit_concl_df.apply(_chk_tat_s,axis=1)
         if not crit_concl_df['tat_met'].empty : summary["overall_perc_met_tat"]=(crit_concl_df['tat_met'].mean()*100)
     
     if crit_keys_in_data:
         summary["total_pending_critical_tests"]=df[(df['test_type'].isin(crit_keys_in_data))&(df['test_result']=='Pending')]['patient_id'].nunique()
     
-    if not all_proc_samp.empty: summary["sample_rejection_rate"]=(all_proc_samp[all_proc_samp['sample_status']=='Rejected'].shape[0]/len(all_proc_samp))*100 if len(all_proc_samp) > 0 else 0
+    if not all_proc_samp.empty: summary["sample_rejection_rate"]=(all_proc_samp[all_proc_samp['sample_status']=='Rejected'].shape[0]/len(all_proc_samp))*100 if len(all_proc_samp) > 0 else 0.0
     
     test_sum_details={}
     for o_key,cfg_p in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items():
@@ -304,29 +306,30 @@ def get_clinic_summary(health_df_period: pd.DataFrame) -> Dict[str, Any]:
             stats_s["positive_rate"]=(grp_c_sum[grp_c_sum['test_result']=='Positive'].shape[0]/len(grp_c_sum))*100 if len(grp_c_sum)>0 else 0.0
             if grp_c_sum['test_turnaround_days'].notna().any():stats_s["avg_tat_days"]=grp_c_sum['test_turnaround_days'].mean()
             tgt_tat_spec=cfg_p.get("target_tat_days",app_config.TARGET_TEST_TURNAROUND_DAYS)
-            grp_c_sum['tat_met_s']=grp_c_sum['test_turnaround_days']<=tgt_tat_spec # Direct assignment
+            grp_c_sum['tat_met_s']=grp_c_sum['test_turnaround_days']<=tgt_tat_spec
             if not grp_c_sum['tat_met_s'].empty: stats_s["perc_met_tat_target"]=grp_c_sum['tat_met_s'].mean()*100
         if 'test_result' in grp_df_for_sum.columns: stats_s["pending_count"]=grp_df_for_sum[grp_df_for_sum['test_result']=='Pending']['patient_id'].nunique()
         if 'sample_status' in grp_df_for_sum.columns: stats_s["rejected_count"]=grp_df_for_sum[grp_df_for_sum['sample_status']=='Rejected']['patient_id'].nunique()
         test_sum_details[d_name]=stats_s
     summary["test_summary_details"]=test_sum_details
-    
     if all(c in df for c in ['item', 'item_stock_agg_zone', 'consumption_rate_per_day', 'encounter_date']) and app_config.KEY_DRUG_SUBSTRINGS_SUPPLY:
         key_drugs_df_sum = df[df['item'].str.contains('|'.join(app_config.KEY_DRUG_SUBSTRINGS_SUPPLY), case=False, na=False)].copy()
         if not key_drugs_df_sum.empty:
             key_drugs_df_sum['encounter_date'] = pd.to_datetime(key_drugs_df_sum['encounter_date'], errors='coerce')
-            key_drugs_df_sum.dropna(subset=['encounter_date'], inplace=True)
+            key_drugs_df_sum = key_drugs_df_sum.dropna(subset=['encounter_date'])
             if not key_drugs_df_sum.empty:
                 latest_key_supply_sum = key_drugs_df_sum.sort_values('encounter_date').drop_duplicates(subset=['item', 'zone_id'], keep='last')
-                days_of_supply_calc = latest_key_supply_sum['item_stock_agg_zone'] / latest_key_supply_sum['consumption_rate_per_day'].replace(0, np.nan)
-                latest_key_supply_sum = latest_key_supply_sum.assign(days_of_supply_calc=days_of_supply_calc)
+                latest_key_supply_sum = latest_key_supply_sum.assign(
+                    days_of_supply_calc = latest_key_supply_sum['item_stock_agg_zone'] / latest_key_supply_sum['consumption_rate_per_day'].replace(0, np.nan)
+                )
                 summary['key_drug_stockouts'] = latest_key_supply_sum[latest_key_supply_sum['days_of_supply_calc'] < app_config.CRITICAL_SUPPLY_DAYS]['item'].nunique()
     return summary
 
 def get_clinic_environmental_summary(iot_df_period: pd.DataFrame) -> Dict[str, Any]:
     summary = {"avg_co2_overall":np.nan, "rooms_co2_alert_latest":0, "avg_pm25_overall":np.nan, "rooms_pm25_alert_latest":0, "avg_occupancy_overall":np.nan, "high_occupancy_alert_latest":False, "avg_noise_overall":np.nan, "rooms_noise_alert_latest":0}
-    if iot_df_period is None or iot_df_period.empty or 'timestamp' not in iot_df_period.columns or not pd.api.types.is_datetime64_any_dtype(iot_df_period['timestamp']): return summary
-    df_iot_sum = iot_df_period.copy(); num_cols_iot_sum = ['avg_co2_ppm','avg_pm25','waiting_room_occupancy','avg_noise_db']
+    if iot_df_period is None or iot_df_period.empty or 'timestamp' not in iot_df_period.columns or not isinstance(iot_df_period['timestamp'].dtype, pd.DatetimeTZDtype) and not pd.api.types.is_datetime64_any_dtype(iot_df_period['timestamp']): return summary
+    df_iot_sum = iot_df_period.copy()
+    num_cols_iot_sum = ['avg_co2_ppm','avg_pm25','waiting_room_occupancy','avg_noise_db']
     for col in num_cols_iot_sum: df_iot_sum[col] = _convert_to_numeric(df_iot_sum.get(col), np.nan)
     if df_iot_sum['avg_co2_ppm'].notna().any(): summary["avg_co2_overall"] = df_iot_sum['avg_co2_ppm'].mean()
     if df_iot_sum['avg_pm25'].notna().any(): summary["avg_pm25_overall"] = df_iot_sum['avg_pm25'].mean()
@@ -345,25 +348,41 @@ def get_patient_alerts_for_clinic(health_df_period: pd.DataFrame, risk_threshold
     if health_df_period is None or health_df_period.empty: return pd.DataFrame()
     alerts_data = []; df_alerts = health_df_period.copy()
     alert_cols_c = ['patient_id','encounter_date','condition','ai_risk_score','ai_followup_priority_score','test_type','test_result','hiv_viral_load_copies_ml','sample_status','min_spo2_pct','vital_signs_temperature_celsius','max_skin_temp_celsius','referral_status','referral_reason']
-    for col in alert_cols_c: df_alerts[col] = df_alerts.get(col, pd.Series(dtype=float if col in ['ai_risk_score','ai_followup_priority_score','hiv_viral_load_copies_ml','min_spo2_pct','vital_signs_temperature_celsius','max_skin_temp_celsius'] else ('datetime64[ns]' if col=='encounter_date' else object))).fillna("Unknown" if col not in ['encounter_date', 'ai_risk_score', 'ai_followup_priority_score', 'hiv_viral_load_copies_ml', 'min_spo2_pct', 'vital_signs_temperature_celsius', 'max_skin_temp_celsius'] else (pd.NaT if col=='encounter_date' else np.nan))
+    for col in alert_cols_c:
+        if col not in df_alerts.columns:
+            dtype = float if 'score' in col or 'hiv' in col or 'pct' in col or 'temp' in col else ('datetime64[ns]' if 'date' in col else object)
+            df_alerts[col] = pd.Series(dtype=dtype)
+        df_alerts[col] = df_alerts[col].fillna(pd.NaT if pd.api.types.is_datetime64_any_dtype(df_alerts[col].dtype) else "Unknown")
+        
     if df_alerts.get('ai_risk_score', pd.Series(dtype=float)).notna().any():
         for _, r in df_alerts[df_alerts.get('ai_risk_score', 0) >= risk_threshold_moderate].iterrows():
             alerts_data.append({**r.to_dict(), 'alert_reason': "High AI Risk", 'priority_score': r.get('ai_risk_score',0)})
+    
     if not alerts_data: return pd.DataFrame(columns=df_alerts.columns.tolist() + ['alert_reason', 'priority_score'])
-    alerts_df_final = pd.DataFrame(alerts_data); alerts_df_final['alert_reason'] = alerts_df_final.get('alert_reason', pd.Series(dtype=str)).astype(str).fillna("Unknown"); alerts_df_final['encounter_date'] = pd.to_datetime(alerts_df_final.get('encounter_date'), errors='coerce'); alerts_df_final.dropna(subset=['patient_id', 'encounter_date'], inplace=True)
-    if alerts_df_final.empty: return pd.DataFrame(columns=alerts_df_final.columns)
+    alerts_df_final = pd.DataFrame(alerts_data)
+    alerts_df_final['alert_reason'] = alerts_df_final.get('alert_reason', "Unknown").astype(str).fillna("Unknown")
+    alerts_df_final['encounter_date'] = pd.to_datetime(alerts_df_final.get('encounter_date'), errors='coerce')
+    alerts_df_final = alerts_df_final.dropna(subset=['patient_id', 'encounter_date'])
+    
+    if alerts_df_final.empty: return alerts_df_final
+    
     alerts_df_final['encounter_date_obj'] = alerts_df_final['encounter_date'].dt.date
+    
     def agg_alerts_clinic(grp):
-        fr = grp.iloc[0].to_dict(); ars = [str(r) for r in grp['alert_reason'].unique() if pd.notna(r)]; fr['alert_reason']="; ".join(sorted(list(set(ars)))) if ars else "General Alert"; fr['priority_score']=grp['priority_score'].max() if 'priority_score' in grp and grp['priority_score'].notna().any() else 0; return pd.Series(fr)
-    valid_keys = alerts_df_final.dropna(subset=['patient_id', 'encounter_date_obj'])
-    if valid_keys.empty: return pd.DataFrame(columns=alerts_df_final.columns)
-    final_df_alerts = valid_keys.groupby(['patient_id', 'encounter_date_obj'], as_index=False).apply(agg_alerts_clinic, include_groups=False).reset_index(drop=True)
-    if 'priority_score' in final_df_alerts.columns: final_df_alerts['priority_score'] = _convert_to_numeric(final_df_alerts['priority_score'],0).astype(int)
-    else: final_df_alerts['priority_score'] = 0
-    sort_date_col_f = 'encounter_date' if 'encounter_date' in final_df_alerts.columns and final_df_alerts['encounter_date'].notna().all() else ('encounter_date_obj' if 'encounter_date_obj' in final_df_alerts else None)
-    sort_cols_f = ['priority_score']; sort_asc_f = [False]
-    if sort_date_col_f: final_df_alerts[sort_date_col_f]=pd.to_datetime(final_df_alerts[sort_date_col_f], errors='coerce'); sort_cols_f.append(sort_date_col_f); sort_asc_f.append(False)
-    return final_df_alerts.sort_values(by=sort_cols_f, ascending=sort_asc_f)
+        fr = grp.iloc[0].to_dict()
+        ars = [str(r) for r in grp['alert_reason'].unique() if pd.notna(r)]
+        fr['alert_reason'] = "; ".join(sorted(list(set(ars)))) if ars else "General Alert"
+        fr['priority_score'] = grp['priority_score'].max() if 'priority_score' in grp and grp['priority_score'].notna().any() else 0
+        return pd.Series(fr)
+        
+    final_df_alerts = alerts_df_final.groupby(['patient_id', 'encounter_date_obj'], as_index=False).apply(agg_alerts_clinic)
+    if 'priority_score' in final_df_alerts.columns:
+        final_df_alerts['priority_score'] = _convert_to_numeric(final_df_alerts['priority_score'], 0).astype(int)
+    else:
+        final_df_alerts['priority_score'] = 0
+        
+    sort_cols_f = ['priority_score', 'encounter_date']
+    return final_df_alerts.sort_values(by=sort_cols_f, ascending=[False, False])
 
 def get_district_summary_kpis(enriched_zone_gdf: gpd.GeoDataFrame) -> Dict[str, Any]:
     kpis: Dict[str, Any] = {"total_population_district":0,"avg_population_risk":np.nan,"zones_high_risk_count":0,"overall_facility_coverage":np.nan,"district_tb_burden_total":0,"district_malaria_burden_total":0,"key_infection_prevalence_district_per_1000":np.nan,"population_weighted_avg_steps":np.nan,"avg_clinic_co2_district":np.nan}
@@ -374,13 +393,13 @@ def get_district_summary_kpis(enriched_zone_gdf: gpd.GeoDataFrame) -> Dict[str, 
     kpis["total_population_district"] = gdf['population'].sum() if 'population' in gdf.columns else 0
     if kpis["total_population_district"] > 0 and pd.notna(kpis["total_population_district"]):
         for mc, kc in [('avg_risk_score','avg_population_risk'), ('facility_coverage_score','overall_facility_coverage'), ('avg_daily_steps_zone','population_weighted_avg_steps')]:
-            if mc in gdf.columns and gdf[mc].notna().any() and 'population' in gdf.columns and gdf['population'].notna().any() and gdf['population'].sum() > 0: # Check for non-zero sum of weights
+            if mc in gdf.columns and gdf[mc].notna().any() and 'population' in gdf.columns and gdf['population'].sum() > 0:
                 valid_weights = gdf.loc[gdf[mc].notna(), 'population']
                 valid_values = gdf.loc[gdf[mc].notna(), mc]
                 if valid_weights.sum() > 0 : kpis[kc] = np.average(valid_values, weights=valid_weights)
-                else: kpis[kc] = valid_values.mean() if not valid_values.empty else np.nan # Fallback to unweighted mean or NaN
+                else: kpis[kc] = valid_values.mean() if not valid_values.empty else np.nan
             else: kpis[kc] = np.nan
-        if 'total_active_key_infections' in gdf.columns: kpis["key_infection_prevalence_district_per_1000"] = (gdf['total_active_key_infections'].sum()/kpis["total_population_district"])*1000 if kpis["total_population_district"] > 0 else 0.0
+        if 'total_active_key_infections' in gdf.columns: kpis["key_infection_prevalence_district_per_1000"] = (gdf['total_active_key_infections'].sum()/kpis["total_population_district"])*1000
     else:
         for mc, kc in [('avg_risk_score','avg_population_risk'), ('facility_coverage_score','overall_facility_coverage'), ('avg_daily_steps_zone','population_weighted_avg_steps')]: kpis[kc] = gdf[mc].mean() if not gdf.empty and mc in gdf.columns and gdf[mc].notna().any() else np.nan
         kpis["key_infection_prevalence_district_per_1000"] = 0.0
@@ -390,38 +409,63 @@ def get_district_summary_kpis(enriched_zone_gdf: gpd.GeoDataFrame) -> Dict[str, 
     return kpis
 
 def get_trend_data(df: pd.DataFrame, value_col: str, date_col: str = 'encounter_date', period: str = 'D', agg_func: str = 'mean', filter_col: Optional[str] = None, filter_val: Optional[Any] = None) -> pd.Series:
-    if df is None or df.empty or date_col not in df.columns or value_col not in df.columns: return pd.Series(dtype='float64')
-    trend_df = df.copy()
-    if not pd.api.types.is_datetime64_any_dtype(trend_df[date_col]): 
-        trend_df[date_col] = pd.to_datetime(trend_df[date_col], errors='coerce')
-    trend_df.dropna(subset=[date_col], inplace=True)
-    if value_col not in trend_df.columns: return pd.Series(dtype='float64')
-    
-    if agg_func != 'nunique': 
-        trend_df.dropna(subset=[value_col], inplace=True)
-    if trend_df.empty: return pd.Series(dtype='float64')
-    
-    if filter_col and filter_col in trend_df.columns and filter_val is not None:
-        trend_df = trend_df[trend_df[filter_col] == filter_val]
-        if trend_df.empty: return pd.Series(dtype='float64')
-    
-    trend_df.set_index(date_col, inplace=True)
-    
-    # CRITICAL BUG FIX: Prevent TypeError on non-numeric columns
-    if agg_func in ['mean', 'sum', 'median'] and not pd.api.types.is_numeric_dtype(trend_df[value_col]):
-        logger.error(f"Cannot perform numeric aggregation '{agg_func}' on non-numeric column '{value_col}'.")
+    """
+    Calculates a trend series from a DataFrame, robustly handling numeric and non-numeric aggregations.
+    """
+    if df is None or df.empty or date_col not in df.columns or value_col not in df.columns:
         return pd.Series(dtype='float64')
 
+    trend_df = df.copy()
+    
+    # Ensure date column is datetime and drop rows with invalid dates
+    if not pd.api.types.is_datetime64_any_dtype(trend_df[date_col]):
+        trend_df[date_col] = pd.to_datetime(trend_df[date_col], errors='coerce')
+    trend_df = trend_df.dropna(subset=[date_col])
+    
+    if value_col not in trend_df.columns:
+        return pd.Series(dtype='float64')
+    
+    # Drop NaNs for most aggregations, but keep for 'count' and 'nunique'
+    if agg_func not in ['nunique', 'count']:
+        trend_df = trend_df.dropna(subset=[value_col])
+        
+    if trend_df.empty:
+        return pd.Series(dtype='float64')
+    
+    # Apply optional filter
+    if filter_col and filter_col in trend_df.columns and filter_val is not None:
+        trend_df = trend_df[trend_df[filter_col] == filter_val]
+        if trend_df.empty:
+            return pd.Series(dtype='float64')
+    
+    trend_df = trend_df.set_index(date_col)
+    
+    # --- LOGIC FIX: Validate aggregation function against column type ---
+    numeric_aggs = ['mean', 'sum', 'median']
+    is_numeric_col = pd.api.types.is_numeric_dtype(trend_df[value_col])
+
+    if agg_func in numeric_aggs and not is_numeric_col:
+        logger.error(f"Trend error: Cannot perform numeric aggregation '{agg_func}' on non-numeric column '{value_col}'.")
+        return pd.Series(dtype='float64')
+        
     try:
         resampled = trend_df.groupby(pd.Grouper(freq=period))
+        
+        # Apply the correct aggregation function
         if agg_func == 'nunique':
             trend_series = resampled[value_col].nunique()
+        elif agg_func == 'count':
+            trend_series = resampled.size()
         elif agg_func == 'sum':
             trend_series = resampled[value_col].sum()
         elif agg_func == 'median':
             trend_series = resampled[value_col].median()
-        else: # Default to mean
+        elif agg_func == 'mean':
             trend_series = resampled[value_col].mean()
+        else:
+            logger.warning(f"Unsupported aggregation function '{agg_func}'. Returning empty series.")
+            return pd.Series(dtype='float64')
+
     except Exception as e:
         logger.error(f"Trend error on column '{value_col}' with agg '{agg_func}': {e}", exc_info=True)
         return pd.Series(dtype='float64')
@@ -442,11 +486,10 @@ def get_supply_forecast_data(health_df: pd.DataFrame, forecast_days_out: int = 3
 
     df_copy = health_df[required_cols].copy()
     df_copy['encounter_date'] = pd.to_datetime(df_copy['encounter_date'], errors='coerce')
-    df_copy.dropna(subset=['encounter_date', 'item'], inplace=True)
+    df_copy = df_copy.dropna(subset=['encounter_date', 'item'])
     if df_copy.empty:
         return pd.DataFrame(columns=default_cols)
 
-    # Get the latest status for each item
     supply_status_df = df_copy.sort_values('encounter_date').drop_duplicates(subset=['item'], keep='last')
     
     if item_filter_list:
@@ -466,16 +509,14 @@ def get_supply_forecast_data(health_df: pd.DataFrame, forecast_days_out: int = 3
         if pd.isna(stock) or pd.isna(cons_r) or pd.isna(last_d) or stock < 0:
             continue
 
-        # CORE BUG FIX: Handle zero consumption before creating a Timedelta
-        if cons_r > 1e-5: # Use a small epsilon to handle floating point inaccuracies
+        if cons_r > 1e-5:
             days_of_supply = stock / cons_r
             est_stockout = last_d + pd.to_timedelta(days_of_supply, unit='D')
             init_days_supply = days_of_supply
         else:
-            est_stockout = pd.NaT  # "Not a Time" for infinite supply
+            est_stockout = pd.NaT
             init_days_supply = np.inf if stock > 0 else 0
         
-        # Use a small positive number for forecasting calculations to avoid division-by-zero
         forecast_cons_r = max(1e-5, cons_r)
 
         dates = pd.date_range(start=last_d + pd.Timedelta(days=1), periods=forecast_days_out, freq='D')
@@ -485,7 +526,6 @@ def get_supply_forecast_data(health_df: pd.DataFrame, forecast_days_out: int = 3
             fc_stock = stock - (forecast_cons_r * days_out)
             fc_days = init_days_supply - days_out if np.isfinite(init_days_supply) else np.inf
             
-            # Simplified confidence interval logic
             cons_std = 0.15
             low_c = forecast_cons_r * (1 + cons_std)
             upp_c = max(1e-5, forecast_cons_r * (1 - cons_std))
