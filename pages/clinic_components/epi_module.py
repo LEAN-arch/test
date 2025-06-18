@@ -40,7 +40,7 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
                         # Ensure 'encounter_date' is datetime for get_trend_data
                         if not pd.api.types.is_datetime64_ns_dtype(symptoms_to_plot['encounter_date']):
                              symptoms_to_plot.loc[:, 'encounter_date'] = pd.to_datetime(symptoms_to_plot['encounter_date'], errors='coerce')
-                        symptoms_to_plot.dropna(subset=['encounter_date'], inplace=True)
+                        symptoms_to_plot = symptoms_to_plot.dropna(subset=['encounter_date'])
 
                         if not symptoms_to_plot.empty:
                             symptom_trends_data = symptoms_to_plot.groupby([pd.Grouper(key='encounter_date', freq='W-Mon'), 'symptom']).size().reset_index(name='count')
