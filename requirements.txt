@@ -1,20 +1,20 @@
-streamlit==1.30.0  # Or a recent stable version
+streamlit  # Or a recent stable version
 pandas     # Or a recent stable 2.x version, or a late 1.5.x
-numpy==1.24.3     # A version known to work well with pandas 2.0.x
+numpy     # A version known to work well with pandas 2.0.x
 geopandas # Or a recent stable version
-plotly==5.18.0    # Or a recent stable version
-shapely~=2.0.1    # Often a dependency for geopandas, good to specify
-Fiona==1.9.4
+plotly    # Or a recent stable version
+shapely    # Often a dependency for geopandas, good to specify
+Fiona
 
 
-matplotlib>=3.7.0 # Add matplotlib, specify a version or range
+matplotlib # Add matplotlib, specify a version or range
 scikit-learn
 # For GeoPandas, it's often better to let its dependencies resolve naturally,
 # but pinning can help if there are issues.
 # Fiona often requires specific GDAL versions to be present on the system.
 # Installing geopandas will pull fiona, shapely, pyproj.
 geopandas # This version is relatively recent and stable
-plotly==5.18.0
+plotly
 # shapely (will be pulled by geopandas)
 # fiona (will be pulled by geopandas)
 # pyproj (will be pulled by geopandas)
