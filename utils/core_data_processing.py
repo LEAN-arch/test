@@ -5,7 +5,7 @@ import numpy as np
 import os
 import logging
 from config import app_config
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def hash_geodataframe(gdf: gpd.GeoDataFrame) -> Optional[str]:
         if geom_col_name in gdf.columns and hasattr(gdf[geom_col_name], 'is_empty') and not gdf[geom_col_name].is_empty.all():
             non_geom_cols_present = gdf.drop(columns=[geom_col_name], errors='ignore').columns.tolist()
             if hasattr(gdf[geom_col_name], 'to_wkt') and not gdf[geom_col_name].is_empty.all():
-                geom_hash_val = pd.util.hash_array(gdf[geom_col_name].to_w_kt().values).sum()
+                geom_hash_val = pd.util.hash_array(gdf[geom_col_name].to_wkt().values).sum()
         else:
             non_geom_cols_present = gdf.columns.tolist()
             
@@ -56,26 +56,45 @@ def hash_geodataframe(gdf: gpd.GeoDataFrame) -> Optional[str]:
         return str(gdf.head().to_string())
 
 def _robust_merge_agg(left_df: pd.DataFrame, right_df: pd.DataFrame, target_col_name: str, on_col: str = 'zone_id', default_fill_value: Any = 0.0) -> pd.DataFrame:
-    if target_col_name not in left_df.columns: left_df[target_col_name] = default_fill_value
-    else: left_df[target_col_name] = left_df[target_col_name].fillna(default_fill_value)
-    if right_df.empty or on_col not in right_df.columns: return left_df
+    if target_col_name not in left_df.columns:
+        left_df[target_col_name] = default_fill_value
+    else:
+        left_df[target_col_name] = left_df[target_col_name].fillna(default_fill_value)
+        
+    if right_df.empty or on_col not in right_df.columns:
+        return left_df
+        
     value_col_candidates = [col for col in right_df.columns if col != on_col]
-    if not value_col_candidates: return left_df
+    if not value_col_candidates:
+        return left_df
+        
     value_col_in_right = value_col_candidates[0]
     temp_agg_col = f"__{target_col_name}_temp_agg_{np.random.randint(10000, 99999)}__"
-    right_df_for_merge = right_df[[on_col, value_col_in_right]].copy(); right_df_for_merge.rename(columns={value_col_in_right: temp_agg_col}, inplace=True)
-    original_index_name = left_df.index.name; left_df_reset_needed = not isinstance(left_df.index, pd.RangeIndex) or original_index_name is not None
+    
+    right_df_for_merge = right_df[[on_col, value_col_in_right]].copy()
+    right_df_for_merge.rename(columns={value_col_in_right: temp_agg_col}, inplace=True)
+    
+    original_index_name = left_df.index.name
+    left_df_reset_needed = not isinstance(left_df.index, pd.RangeIndex) or original_index_name is not None
+    
     left_df_for_merge = left_df.reset_index() if left_df_reset_needed else left_df
+    
     merged_df = left_df_for_merge.merge(right_df_for_merge, on=on_col, how='left')
+    
     if temp_agg_col in merged_df.columns:
-        merged_df[target_col_name] = merged_df[temp_agg_col].combine_first(merged_df.get(target_col_name, pd.Series(dtype=type(default_fill_value))))
+        # Correctly use .combine_first without inplace modification on a slice
+        merged_df[target_col_name] = merged_df[temp_agg_col].combine_first(merged_df[target_col_name])
         merged_df.drop(columns=[temp_agg_col], inplace=True, errors='ignore')
-    merged_df[target_col_name].fillna(default_fill_value, inplace=True)
+
+    # Correctly fill NaNs by reassigning the column to avoid SettingWithCopyWarning
+    merged_df[target_col_name] = merged_df[target_col_name].fillna(default_fill_value)
+    
     if left_df_reset_needed:
         index_col_to_set_back = original_index_name if original_index_name else 'index'
         if index_col_to_set_back in merged_df.columns:
             merged_df.set_index(index_col_to_set_back, inplace=True)
-            if original_index_name: merged_df.index.name = original_index_name
+            if original_index_name:
+                merged_df.index.name = original_index_name
     return merged_df
 
 @st.cache_data(ttl=app_config.CACHE_TTL_SECONDS, show_spinner="Loading health records...")
@@ -167,10 +186,10 @@ def enrich_zone_geodata_with_health_aggregates(zone_gdf: gpd.GeoDataFrame, healt
             if not tat_df_en.empty:
                 enriched = _robust_merge_agg(enriched, tat_df_en.groupby('zone_id')['test_turnaround_days'].mean().reset_index(), 'avg_test_turnaround_critical', default_fill_value=np.nan)
                 def _ctm_e(r): cfg=app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(r['test_type']); return r['test_turnaround_days']<=(cfg['target_tat_days'] if cfg and 'target_tat_days' in cfg else app_config.TARGET_TEST_TURNAROUND_DAYS)
-                tat_df_en.loc[:,'tm_f_e'] = tat_df_en.apply(_ctm_e, axis=1)
+                tat_df_en['tm_f_e'] = tat_df_en.apply(_ctm_e, axis=1) # Use direct assignment to avoid SettingWithCopyWarning
                 pm_agg_e = tat_df_en.groupby('zone_id')['tm_f_e'].mean().reset_index().rename(columns={'tm_f_e':'val_merge'})
                 enriched = _robust_merge_agg(enriched, pm_agg_e, 'perc_critical_tests_tat_met')
-                if 'perc_critical_tests_tat_met' in enriched.columns: enriched.loc[:,'perc_critical_tests_tat_met'] = enriched['perc_critical_tests_tat_met'] * 100
+                if 'perc_critical_tests_tat_met' in enriched.columns: enriched['perc_critical_tests_tat_met'] = enriched['perc_critical_tests_tat_met'] * 100
         if 'avg_daily_steps' in hdfa.columns: enriched = _robust_merge_agg(enriched, hdfa.groupby('zone_id')['avg_daily_steps'].mean().reset_index(), 'avg_daily_steps_zone', default_fill_value=np.nan)
     if iot_df is not None and not iot_df.empty and all(c in iot_df.columns for c in ['zone_id','avg_co2_ppm']): iot_df['zone_id']=iot_df['zone_id'].astype(str).str.strip(); enriched=_robust_merge_agg(enriched,iot_df.groupby('zone_id')['avg_co2_ppm'].mean().reset_index(), 'zone_avg_co2', default_fill_value=np.nan)
     if 'total_active_key_infections' in enriched.columns and 'population' in enriched.columns: enriched['prevalence_per_1000'] = enriched.apply(lambda r:(r.get('total_active_key_infections',0)/r['population'])*1000 if pd.notna(r['population']) and r['population']>0 else 0.0,axis=1).fillna(0.0)
@@ -238,15 +257,15 @@ def get_patient_alerts_for_chw(health_df_daily: pd.DataFrame, risk_threshold_mod
     if 'ai_risk_score' in df_alerts and df_alerts['ai_risk_score'].notna().any(): list(alerts.append({**r.to_dict(),'alert_reason':"Mod AI Risk",'priority_score':r['ai_risk_score']}) for _,r in df_alerts[(df_alerts['ai_risk_score']>=risk_threshold_moderate)&(df_alerts['ai_risk_score']<risk_threshold_high)].iterrows())
     
     if not alerts: return pd.DataFrame(columns=cols_needed + ['alert_reason', 'priority_score'])
-    alert_df_final = pd.DataFrame(alerts); alert_df_final['encounter_date']=pd.to_datetime(alert_df_final.get('encounter_date'),errors='coerce')
-    if 'encounter_date' in alert_df_final and alert_df_final['encounter_date'].notna().any():
-        alert_df_final['enc_date_obj_dedup'] = alert_df_final['encounter_date'].dt.date
-        alert_df_final.drop_duplicates(subset=['patient_id','alert_reason','enc_date_obj_dedup'], inplace=True, keep='first')
-        alert_df_final.drop(columns=['enc_date_obj_dedup'], inplace=True, errors='ignore')
-    else: alert_df_final.drop_duplicates(subset=['patient_id','alert_reason'],inplace=True,keep='first')
-    alert_df_final['priority_score'] = alert_df_final.get('priority_score', pd.Series(0, index=alert_df_final.index)).fillna(0).astype(int)
-    sort_c_final = ['priority_score']; sort_asc_flags = [False]
-    if 'encounter_date' in alert_df_final.columns and alert_df_final['encounter_date'].notna().any(): sort_c_final.append('encounter_date'); sort_asc_flags.append(False)
+    alert_df_final = pd.DataFrame(alerts)
+    alert_df_final['encounter_date'] = pd.to_datetime(alert_df_final.get('encounter_date'), errors='coerce')
+    
+    # Use direct assignment to avoid SettingWithCopyWarning
+    alert_df_final = alert_df_final.drop_duplicates(subset=['patient_id', 'alert_reason', 'encounter_date'])
+    alert_df_final['priority_score'] = alert_df_final.get('priority_score', 0).fillna(0).astype(int)
+    
+    sort_c_final = ['priority_score', 'encounter_date']
+    sort_asc_flags = [False, False]
     return alert_df_final.sort_values(by=sort_c_final, ascending=sort_asc_flags)
 
 def get_clinic_summary(health_df_period: pd.DataFrame) -> Dict[str, Any]:
@@ -265,40 +284,42 @@ def get_clinic_summary(health_df_period: pd.DataFrame) -> Dict[str, Any]:
     crit_concl_df = concl_df[concl_df['test_type'].isin(crit_keys_in_data)].copy()
     if not crit_concl_df.empty:
         def _chk_tat_s(r): cfg_s=app_config.KEY_TEST_TYPES_FOR_ANALYSIS.get(r['test_type']); return r['test_turnaround_days']<=(cfg_s['target_tat_days'] if cfg_s and 'target_tat_days' in cfg_s else app_config.TARGET_TEST_TURNAROUND_DAYS)
-        crit_concl_df.loc[:,'tat_met'] = crit_concl_df.apply(_chk_tat_s,axis=1)
+        crit_concl_df['tat_met'] = crit_concl_df.apply(_chk_tat_s,axis=1) # Use direct assignment
         if not crit_concl_df['tat_met'].empty : summary["overall_perc_met_tat"]=(crit_concl_df['tat_met'].mean()*100)
     
-    if crit_keys_in_data: # Only filter if critical keys are actually found in data
+    if crit_keys_in_data:
         summary["total_pending_critical_tests"]=df[(df['test_type'].isin(crit_keys_in_data))&(df['test_result']=='Pending')]['patient_id'].nunique()
     
-    if not all_proc_samp.empty and len(all_proc_samp)>0: summary["sample_rejection_rate"]=(all_proc_samp[all_proc_samp['sample_status']=='Rejected'].shape[0]/len(all_proc_samp))*100
+    if not all_proc_samp.empty: summary["sample_rejection_rate"]=(all_proc_samp[all_proc_samp['sample_status']=='Rejected'].shape[0]/len(all_proc_samp))*100 if len(all_proc_samp) > 0 else 0
     
     test_sum_details={}
     for o_key,cfg_p in app_config.KEY_TEST_TYPES_FOR_ANALYSIS.items():
         d_name=cfg_p.get("display_name",o_key); actual_keys=cfg_p.get("types_in_group",[o_key]); actual_keys=[o_key] if isinstance(actual_keys,str) else actual_keys
-        grp_df_for_sum = df[df['test_type'].isin(actual_keys)] # This line was the source of NameError before grp_df -> grp_df_for_sum
+        grp_df_for_sum = df[df['test_type'].isin(actual_keys)]
         stats_s = {"positive_rate":0.0,"avg_tat_days":np.nan,"perc_met_tat_target":0.0,"pending_count":0,"rejected_count":0,"total_conducted_conclusive":0}
         if grp_df_for_sum.empty: test_sum_details[d_name]=stats_s; continue
         grp_c_sum = grp_df_for_sum[~grp_df_for_sum['test_result'].isin(['Pending','Rejected Sample','Unknown','N/A','nan','Indeterminate']) & grp_df_for_sum['test_turnaround_days'].notna()].copy()
         stats_s["total_conducted_conclusive"]=len(grp_c_sum)
-        if not grp_c_sum.empty: # Guard for ZeroDivisionError and empty mean
+        if not grp_c_sum.empty:
             stats_s["positive_rate"]=(grp_c_sum[grp_c_sum['test_result']=='Positive'].shape[0]/len(grp_c_sum))*100 if len(grp_c_sum)>0 else 0.0
             if grp_c_sum['test_turnaround_days'].notna().any():stats_s["avg_tat_days"]=grp_c_sum['test_turnaround_days'].mean()
             tgt_tat_spec=cfg_p.get("target_tat_days",app_config.TARGET_TEST_TURNAROUND_DAYS)
-            grp_c_sum.loc[:,'tat_met_s']=grp_c_sum['test_turnaround_days']<=tgt_tat_spec
+            grp_c_sum['tat_met_s']=grp_c_sum['test_turnaround_days']<=tgt_tat_spec # Direct assignment
             if not grp_c_sum['tat_met_s'].empty: stats_s["perc_met_tat_target"]=grp_c_sum['tat_met_s'].mean()*100
         if 'test_result' in grp_df_for_sum.columns: stats_s["pending_count"]=grp_df_for_sum[grp_df_for_sum['test_result']=='Pending']['patient_id'].nunique()
         if 'sample_status' in grp_df_for_sum.columns: stats_s["rejected_count"]=grp_df_for_sum[grp_df_for_sum['sample_status']=='Rejected']['patient_id'].nunique()
         test_sum_details[d_name]=stats_s
     summary["test_summary_details"]=test_sum_details
-    if 'item' in df.columns and 'item_stock_agg_zone' in df.columns and 'consumption_rate_per_day' in df.columns and app_config.KEY_DRUG_SUBSTRINGS_SUPPLY:
-        key_drugs_df_sum = df[df['item'].str.contains('|'.join(app_config.KEY_DRUG_SUBSTRINGS_SUPPLY), case=False, na=False)]
+    
+    if all(c in df for c in ['item', 'item_stock_agg_zone', 'consumption_rate_per_day', 'encounter_date']) and app_config.KEY_DRUG_SUBSTRINGS_SUPPLY:
+        key_drugs_df_sum = df[df['item'].str.contains('|'.join(app_config.KEY_DRUG_SUBSTRINGS_SUPPLY), case=False, na=False)].copy()
         if not key_drugs_df_sum.empty:
-            key_drugs_df_sum.loc[:, 'encounter_date'] = pd.to_datetime(key_drugs_df_sum['encounter_date'], errors='coerce')
+            key_drugs_df_sum['encounter_date'] = pd.to_datetime(key_drugs_df_sum['encounter_date'], errors='coerce')
             key_drugs_df_sum.dropna(subset=['encounter_date'], inplace=True)
             if not key_drugs_df_sum.empty:
                 latest_key_supply_sum = key_drugs_df_sum.sort_values('encounter_date').drop_duplicates(subset=['item', 'zone_id'], keep='last')
-                latest_key_supply_sum.loc[:, 'days_of_supply_calc'] = latest_key_supply_sum['item_stock_agg_zone'] / (latest_key_supply_sum['consumption_rate_per_day'].replace(0, np.nan))
+                days_of_supply_calc = latest_key_supply_sum['item_stock_agg_zone'] / latest_key_supply_sum['consumption_rate_per_day'].replace(0, np.nan)
+                latest_key_supply_sum = latest_key_supply_sum.assign(days_of_supply_calc=days_of_supply_calc)
                 summary['key_drug_stockouts'] = latest_key_supply_sum[latest_key_supply_sum['days_of_supply_calc'] < app_config.CRITICAL_SUPPLY_DAYS]['item'].nunique()
     return summary
 
@@ -344,7 +365,6 @@ def get_patient_alerts_for_clinic(health_df_period: pd.DataFrame, risk_threshold
     if sort_date_col_f: final_df_alerts[sort_date_col_f]=pd.to_datetime(final_df_alerts[sort_date_col_f], errors='coerce'); sort_cols_f.append(sort_date_col_f); sort_asc_f.append(False)
     return final_df_alerts.sort_values(by=sort_cols_f, ascending=sort_asc_f)
 
-
 def get_district_summary_kpis(enriched_zone_gdf: gpd.GeoDataFrame) -> Dict[str, Any]:
     kpis: Dict[str, Any] = {"total_population_district":0,"avg_population_risk":np.nan,"zones_high_risk_count":0,"overall_facility_coverage":np.nan,"district_tb_burden_total":0,"district_malaria_burden_total":0,"key_infection_prevalence_district_per_1000":np.nan,"population_weighted_avg_steps":np.nan,"avg_clinic_co2_district":np.nan}
     if enriched_zone_gdf is None or enriched_zone_gdf.empty: return kpis
@@ -371,26 +391,41 @@ def get_district_summary_kpis(enriched_zone_gdf: gpd.GeoDataFrame) -> Dict[str, 
 
 def get_trend_data(df: pd.DataFrame, value_col: str, date_col: str = 'encounter_date', period: str = 'D', agg_func: str = 'mean', filter_col: Optional[str] = None, filter_val: Optional[Any] = None) -> pd.Series:
     if df is None or df.empty or date_col not in df.columns or value_col not in df.columns: return pd.Series(dtype='float64')
-    trend_df = df.copy();
-    if not pd.api.types.is_datetime64_any_dtype(trend_df[date_col]): trend_df[date_col] = pd.to_datetime(trend_df[date_col], errors='coerce')
+    trend_df = df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(trend_df[date_col]): 
+        trend_df[date_col] = pd.to_datetime(trend_df[date_col], errors='coerce')
     trend_df.dropna(subset=[date_col], inplace=True)
     if value_col not in trend_df.columns: return pd.Series(dtype='float64')
-    if agg_func != 'nunique': trend_df.dropna(subset=[value_col], inplace=True) # For nunique, NaNs are often fine.
+    
+    if agg_func != 'nunique': 
+        trend_df.dropna(subset=[value_col], inplace=True)
     if trend_df.empty: return pd.Series(dtype='float64')
+    
     if filter_col and filter_col in trend_df.columns and filter_val is not None:
-        trend_df = trend_df[trend_df[filter_col] == filter_val];
+        trend_df = trend_df[trend_df[filter_col] == filter_val]
         if trend_df.empty: return pd.Series(dtype='float64')
+    
     trend_df.set_index(date_col, inplace=True)
+    
+    # CRITICAL BUG FIX: Prevent TypeError on non-numeric columns
     if agg_func in ['mean', 'sum', 'median'] and not pd.api.types.is_numeric_dtype(trend_df[value_col]):
-        trend_df[value_col] = _convert_to_numeric(trend_df[value_col], np.nan); trend_df.dropna(subset=[value_col], inplace=True)
-        if trend_df.empty: return pd.Series(dtype='float64')
+        logger.error(f"Cannot perform numeric aggregation '{agg_func}' on non-numeric column '{value_col}'.")
+        return pd.Series(dtype='float64')
+
     try:
         resampled = trend_df.groupby(pd.Grouper(freq=period))
-        if agg_func == 'nunique': trend_series = resampled[value_col].nunique()
-        elif agg_func == 'sum': trend_series = resampled[value_col].sum()
-        elif agg_func == 'median': trend_series = resampled[value_col].median()
-        else: trend_series = resampled[value_col].mean()
-    except Exception as e: logger.error(f"Trend error ({value_col}/{agg_func}): {e}", exc_info=True); return pd.Series(dtype='float64')
+        if agg_func == 'nunique':
+            trend_series = resampled[value_col].nunique()
+        elif agg_func == 'sum':
+            trend_series = resampled[value_col].sum()
+        elif agg_func == 'median':
+            trend_series = resampled[value_col].median()
+        else: # Default to mean
+            trend_series = resampled[value_col].mean()
+    except Exception as e:
+        logger.error(f"Trend error on column '{value_col}' with agg '{agg_func}': {e}", exc_info=True)
+        return pd.Series(dtype='float64')
+        
     return trend_series
 
 def get_supply_forecast_data(health_df: pd.DataFrame, forecast_days_out: int = 30, item_filter_list: Optional[List[str]] = None) -> pd.DataFrame:
@@ -431,49 +466,44 @@ def get_supply_forecast_data(health_df: pd.DataFrame, forecast_days_out: int = 3
         if pd.isna(stock) or pd.isna(cons_r) or pd.isna(last_d) or stock < 0:
             continue
 
-        # --- CORE BUG FIX IS HERE ---
-        # Handle zero or negative consumption rate to prevent division by zero and overflow errors.
-        if cons_r > 0.00001:
-            # If there is consumption, calculate days of supply and the estimated stockout date.
+        # CORE BUG FIX: Handle zero consumption before creating a Timedelta
+        if cons_r > 1e-5: # Use a small epsilon to handle floating point inaccuracies
             days_of_supply = stock / cons_r
             est_stockout = last_d + pd.to_timedelta(days_of_supply, unit='D')
             init_days_supply = days_of_supply
         else:
-            # If no consumption, supply is infinite, and there is no stockout date.
-            est_stockout = pd.NaT  # Use "Not a Time" for non-existent dates.
+            est_stockout = pd.NaT  # "Not a Time" for infinite supply
             init_days_supply = np.inf if stock > 0 else 0
         
-        # This is for the forecast loop, not for the initial days of supply calculation.
-        forecast_cons_r = max(0.0001, cons_r)
+        # Use a small positive number for forecasting calculations to avoid division-by-zero
+        forecast_cons_r = max(1e-5, cons_r)
 
         dates = pd.date_range(start=last_d + pd.Timedelta(days=1), periods=forecast_days_out, freq='D')
         
         for i, fc_d in enumerate(dates):
             days_out = i + 1
             fc_stock = stock - (forecast_cons_r * days_out)
-            
-            # Use init_days_supply which can be infinite.
             fc_days = init_days_supply - days_out if np.isfinite(init_days_supply) else np.inf
             
             # Simplified confidence interval logic
             cons_std = 0.15
             low_c = forecast_cons_r * (1 + cons_std)
-            upp_c = max(0.0001, forecast_cons_r * (1 - cons_std))
+            upp_c = max(1e-5, forecast_cons_r * (1 - cons_std))
             
             low_ci_stock = stock - (low_c * days_out)
             upp_ci_stock = stock - (upp_c * days_out)
             
-            low_ci_d = (low_ci_stock / low_c) if low_c > 0.00001 else (np.inf if low_ci_stock > 0 else 0)
-            upp_ci_d = (upp_ci_stock / upp_c) if upp_c > 0.00001 else (np.inf if upp_ci_stock > 0 else 0)
+            low_ci_d = (low_ci_stock / low_c) if low_c > 1e-5 else (np.inf if low_ci_stock > 0 else 0)
+            upp_ci_d = (upp_ci_stock / upp_c) if upp_c > 1e-5 else (np.inf if upp_ci_stock > 0 else 0)
 
             forecasts.append({
                 'item': item,
                 'date': fc_d,
                 'current_stock': stock,
-                'consumption_rate': cons_r, # Report the original rate for clarity
+                'consumption_rate': cons_r,
                 'forecast_stock': max(0, fc_stock),
                 'forecast_days': max(0, fc_days),
-                'estimated_stockout_date': est_stockout, # This will be NaT for infinite supply
+                'estimated_stockout_date': est_stockout,
                 'lower_ci': max(0, low_ci_d),
                 'upper_ci': max(0, upp_ci_d),
                 'initial_days_supply': init_days_supply
