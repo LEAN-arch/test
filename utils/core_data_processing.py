@@ -1,4 +1,3 @@
-# test/utils/core_data_processing.py
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -41,7 +40,7 @@ def hash_geodataframe(gdf: gpd.GeoDataFrame) -> Optional[str]:
         if geom_col_name in gdf.columns and hasattr(gdf[geom_col_name], 'is_empty') and not gdf[geom_col_name].is_empty.all():
             non_geom_cols_present = gdf.drop(columns=[geom_col_name], errors='ignore').columns.tolist()
             if hasattr(gdf[geom_col_name], 'to_wkt') and not gdf[geom_col_name].is_empty.all():
-                geom_hash_val = pd.util.hash_array(gdf[geom_col_name].to_wkt().values).sum()
+                geom_hash_val = pd.util.hash_array(gdf[geom_col_name].to_w_kt().values).sum()
         else:
             non_geom_cols_present = gdf.columns.tolist()
             
@@ -326,9 +325,6 @@ def get_patient_alerts_for_clinic(health_df_period: pd.DataFrame, risk_threshold
     alerts_data = []; df_alerts = health_df_period.copy()
     alert_cols_c = ['patient_id','encounter_date','condition','ai_risk_score','ai_followup_priority_score','test_type','test_result','hiv_viral_load_copies_ml','sample_status','min_spo2_pct','vital_signs_temperature_celsius','max_skin_temp_celsius','referral_status','referral_reason']
     for col in alert_cols_c: df_alerts[col] = df_alerts.get(col, pd.Series(dtype=float if col in ['ai_risk_score','ai_followup_priority_score','hiv_viral_load_copies_ml','min_spo2_pct','vital_signs_temperature_celsius','max_skin_temp_celsius'] else ('datetime64[ns]' if col=='encounter_date' else object))).fillna("Unknown" if col not in ['encounter_date', 'ai_risk_score', 'ai_followup_priority_score', 'hiv_viral_load_copies_ml', 'min_spo2_pct', 'vital_signs_temperature_celsius', 'max_skin_temp_celsius'] else (pd.NaT if col=='encounter_date' else np.nan))
-    # Alert generation rules (full logic as provided in fixes)
-    # ... (This would be the comprehensive rule set from the earlier version)
-    # Example rules to ensure the function is not empty:
     if df_alerts.get('ai_risk_score', pd.Series(dtype=float)).notna().any():
         for _, r in df_alerts[df_alerts.get('ai_risk_score', 0) >= risk_threshold_moderate].iterrows():
             alerts_data.append({**r.to_dict(), 'alert_reason': "High AI Risk", 'priority_score': r.get('ai_risk_score',0)})
@@ -398,27 +394,92 @@ def get_trend_data(df: pd.DataFrame, value_col: str, date_col: str = 'encounter_
     return trend_series
 
 def get_supply_forecast_data(health_df: pd.DataFrame, forecast_days_out: int = 30, item_filter_list: Optional[List[str]] = None) -> pd.DataFrame:
+    """
+    Generates a forward-looking supply forecast for specified items.
+    This version includes the fix for the OutOfBoundsTimedelta error.
+    """
     default_cols = ['item','date','current_stock','consumption_rate','forecast_stock','forecast_days','estimated_stockout_date','lower_ci','upper_ci','initial_days_supply']
-    if health_df is None or health_df.empty or not all(c in health_df.columns for c in ['item','encounter_date','item_stock_agg_zone','consumption_rate_per_day']): return pd.DataFrame(columns=default_cols)
-    df_copy = health_df.copy(); df_copy['encounter_date'] = pd.to_datetime(df_copy['encounter_date'], errors='coerce'); df_copy.dropna(subset=['encounter_date'], inplace=True)
-    if df_copy.empty: return pd.DataFrame(columns=default_cols)
-    supply_status_df = df_copy.loc[df_copy.groupby('item')['encounter_date'].idxmax()]
-    if item_filter_list: supply_status_df = supply_status_df[supply_status_df['item'].isin(item_filter_list)]
-    if supply_status_df.empty: return pd.DataFrame(columns=default_cols)
+    required_cols = ['item', 'encounter_date', 'item_stock_agg_zone', 'consumption_rate_per_day']
+    
+    if health_df is None or health_df.empty or not all(c in health_df.columns for c in required_cols):
+        logger.warning("Supply forecast skipped: DataFrame is missing one or more required columns.")
+        return pd.DataFrame(columns=default_cols)
+
+    df_copy = health_df[required_cols].copy()
+    df_copy['encounter_date'] = pd.to_datetime(df_copy['encounter_date'], errors='coerce')
+    df_copy.dropna(subset=['encounter_date', 'item'], inplace=True)
+    if df_copy.empty:
+        return pd.DataFrame(columns=default_cols)
+
+    # Get the latest status for each item
+    supply_status_df = df_copy.sort_values('encounter_date').drop_duplicates(subset=['item'], keep='last')
+    
+    if item_filter_list:
+        supply_status_df = supply_status_df[supply_status_df['item'].isin(item_filter_list)]
+    
+    if supply_status_df.empty:
+        return pd.DataFrame(columns=default_cols)
+
     forecasts = []
-    for _, r in supply_status_df.iterrows():
-        item, stock, cons_r, last_d = r['item'], r.get('item_stock_agg_zone',0), r.get('consumption_rate_per_day',0), r['encounter_date']
-        if pd.isna(stock) or pd.isna(cons_r) or pd.isna(last_d) or stock < 0: continue
-        cons_r = max(0.0001, cons_r) if cons_r > 0 else 0 # Handle zero consumption, avoid neg
+    
+    for _, row in supply_status_df.iterrows():
+        item = row['item']
+        stock = row.get('item_stock_agg_zone', 0)
+        cons_r = row.get('consumption_rate_per_day', 0)
+        last_d = row['encounter_date']
+
+        if pd.isna(stock) or pd.isna(cons_r) or pd.isna(last_d) or stock < 0:
+            continue
+
+        # --- CORE BUG FIX IS HERE ---
+        # Handle zero or negative consumption rate to prevent division by zero and overflow errors.
+        if cons_r > 0.00001:
+            # If there is consumption, calculate days of supply and the estimated stockout date.
+            days_of_supply = stock / cons_r
+            est_stockout = last_d + pd.to_timedelta(days_of_supply, unit='D')
+            init_days_supply = days_of_supply
+        else:
+            # If no consumption, supply is infinite, and there is no stockout date.
+            est_stockout = pd.NaT  # Use "Not a Time" for non-existent dates.
+            init_days_supply = np.inf if stock > 0 else 0
+        
+        # This is for the forecast loop, not for the initial days of supply calculation.
+        forecast_cons_r = max(0.0001, cons_r)
+
         dates = pd.date_range(start=last_d + pd.Timedelta(days=1), periods=forecast_days_out, freq='D')
-        est_stockout = last_d + pd.to_timedelta(stock/cons_r if cons_r > 0.00001 else np.inf, unit='D') # Approx for inf days
-        init_days_supply = stock/cons_r if cons_r > 0.00001 else (np.inf if stock > 0 else 0)
+        
         for i, fc_d in enumerate(dates):
-            days_out=i+1; fc_stock=stock-(cons_r*days_out); fc_days=(fc_stock/cons_r) if cons_r > 0.00001 else (np.inf if fc_stock > 0 else 0)
-            cons_std=0.15; low_c=cons_r*(1+cons_std); upp_c=max(0.0001,cons_r*(1-cons_std))
-            low_ci_st=stock-(low_c*days_out); upp_ci_st=stock-(upp_c*days_out)
-            low_ci_d=(low_ci_st/low_c) if low_c>0.00001 else (np.inf if low_ci_st>0 else 0)
-            upp_ci_d=(upp_ci_st/upp_c) if upp_c>0.00001 else (np.inf if upp_ci_st>0 else 0)
-            forecasts.append({'item':item,'date':fc_d,'current_stock':stock,'consumption_rate':cons_r,'forecast_stock':max(0,fc_stock),'forecast_days':max(0,fc_days),'estimated_stockout_date':est_stockout,'lower_ci':max(0,low_ci_d),'upper_ci':max(0,upp_ci_d),'initial_days_supply':init_days_supply})
-    if not forecasts: return pd.DataFrame(columns=default_cols)
+            days_out = i + 1
+            fc_stock = stock - (forecast_cons_r * days_out)
+            
+            # Use init_days_supply which can be infinite.
+            fc_days = init_days_supply - days_out if np.isfinite(init_days_supply) else np.inf
+            
+            # Simplified confidence interval logic
+            cons_std = 0.15
+            low_c = forecast_cons_r * (1 + cons_std)
+            upp_c = max(0.0001, forecast_cons_r * (1 - cons_std))
+            
+            low_ci_stock = stock - (low_c * days_out)
+            upp_ci_stock = stock - (upp_c * days_out)
+            
+            low_ci_d = (low_ci_stock / low_c) if low_c > 0.00001 else (np.inf if low_ci_stock > 0 else 0)
+            upp_ci_d = (upp_ci_stock / upp_c) if upp_c > 0.00001 else (np.inf if upp_ci_stock > 0 else 0)
+
+            forecasts.append({
+                'item': item,
+                'date': fc_d,
+                'current_stock': stock,
+                'consumption_rate': cons_r, # Report the original rate for clarity
+                'forecast_stock': max(0, fc_stock),
+                'forecast_days': max(0, fc_days),
+                'estimated_stockout_date': est_stockout, # This will be NaT for infinite supply
+                'lower_ci': max(0, low_ci_d),
+                'upper_ci': max(0, upp_ci_d),
+                'initial_days_supply': init_days_supply
+            })
+
+    if not forecasts:
+        return pd.DataFrame(columns=default_cols)
+        
     return pd.DataFrame(forecasts)
