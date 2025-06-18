@@ -6,6 +6,10 @@ from utils.core_data_processing import get_trend_data
 from utils.ui_visualization_helpers import plot_bar_chart, plot_annotated_line_chart, plot_donut_chart
 
 def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
+    """
+    Renders the epidemiology analysis module for the clinic dashboard.
+    This version is corrected to avoid pandas SettingWithCopyWarning and other potential issues.
+    """
     if filtered_health_df_clinic.empty:
         st.info(f"No health data available for epidemiology analysis for the period {date_range_display_str}.")
         return
@@ -79,17 +83,26 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
     st.markdown("---")
     st.subheader("Demographic Breakdown for Selected Condition")
     if 'condition' in filtered_health_df_clinic.columns:
-        conditions_for_demog_clinic = ["All Conditions"] + sorted(filtered_health_df_clinic['condition'].dropna().unique().tolist())
-        selected_condition_demog_clinic = st.selectbox("Select Condition for Demographic Analysis:", options=conditions_for_demog_clinic, index=0, key="clinic_demog_cond_select_epi_v1")
+        # Ensure unique conditions are handled correctly, even with NaNs
+        unique_conditions = sorted(filtered_health_df_clinic['condition'].dropna().unique().tolist())
+        conditions_for_demog_clinic = ["All Conditions"] + unique_conditions
+        
+        selected_condition_demog_clinic = st.selectbox(
+            "Select Condition for Demographic Analysis:", 
+            options=conditions_for_demog_clinic, 
+            index=0, 
+            key="clinic_demog_cond_select_epi_v1"
+        )
         
         condition_df_demog_source_clinic = filtered_health_df_clinic
         if selected_condition_demog_clinic != "All Conditions":
-            condition_df_demog_source_clinic = filtered_health_df_clinic[filtered_health_df_clinic['condition'] == selected_condition_demog_clinic]
+            condition_df_demog_source_clinic = filtered_health_df_clinic[
+                filtered_health_df_clinic['condition'] == selected_condition_demog_clinic
+            ]
         
         new_cases_demog_df_clinic = pd.DataFrame()
-        if 'encounter_date' in condition_df_demog_source_clinic.columns and \
-           'patient_id' in condition_df_demog_source_clinic.columns and \
-           'condition' in condition_df_demog_source_clinic.columns and \
+        required_cols = ['encounter_date', 'patient_id', 'condition']
+        if all(col in condition_df_demog_source_clinic.columns for col in required_cols) and \
            not condition_df_demog_source_clinic.empty:
             
             cond_df_demog_copy = condition_df_demog_source_clinic.copy()
@@ -100,36 +113,65 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
             demog_breakdown_cols_epi_clinic = st.columns(2)
             with demog_breakdown_cols_epi_clinic[0]:
                 if 'age' in new_cases_demog_df_clinic.columns and new_cases_demog_df_clinic['age'].notna().any():
-                    age_bins_clinic = [0, 5, 18, 35, 50, 65, np.inf]; age_labels_clinic = ['0-4', '5-17', '18-34', '35-49', '50-64', '65+']
+                    age_bins_clinic = [0, 5, 18, 35, 50, 65, np.inf]
+                    age_labels_clinic = ['0-4', '5-17', '18-34', '35-49', '50-64', '65+']
                     new_cases_demog_df_clinic_age = new_cases_demog_df_clinic.copy()
-                    new_cases_demog_df_clinic_age['age_group_clinic_epi_display'] = pd.cut(new_cases_demog_df_clinic_age['age'], bins=age_bins_clinic, labels=age_labels_clinic, right=False)
+                    
+                    new_cases_demog_df_clinic_age['age_group_clinic_epi_display'] = pd.cut(
+                        new_cases_demog_df_clinic_age['age'], 
+                        bins=age_bins_clinic, 
+                        labels=age_labels_clinic, 
+                        right=False
+                    )
                     age_dist_demog_clinic = new_cases_demog_df_clinic_age['age_group_clinic_epi_display'].value_counts().sort_index().reset_index()
                     age_dist_demog_clinic.columns = ['Age Group', 'New Cases']
-                    if not age_dist_demog_clinic.empty: st.plotly_chart(plot_bar_chart(age_dist_demog_clinic, 'Age Group', 'New Cases', f"{selected_condition_demog_clinic} - Cases by Age Group", height=300, y_is_count=True, text_format='d'), use_container_width=True)
-                    else: st.caption("No data for age distribution.")
-                else: st.caption("Age data not available for selected condition.")
+                    
+                    if not age_dist_demog_clinic.empty:
+                        st.plotly_chart(plot_bar_chart(age_dist_demog_clinic, 'Age Group', 'New Cases', f"{selected_condition_demog_clinic} - Cases by Age Group", height=300, y_is_count=True, text_format='d'), use_container_width=True)
+                    else:
+                        st.caption("No data for age distribution.")
+                else:
+                    st.caption("Age data not available for selected condition.")
             with demog_breakdown_cols_epi_clinic[1]:
                 if 'gender' in new_cases_demog_df_clinic.columns and new_cases_demog_df_clinic['gender'].notna().any():
                     gender_dist_demog_clinic = new_cases_demog_df_clinic['gender'].value_counts().reset_index()
                     gender_dist_demog_clinic.columns = ['Gender', 'New Cases']
-                    if not gender_dist_demog_clinic.empty: st.plotly_chart(plot_donut_chart(gender_dist_demog_clinic, 'Gender', 'New Cases', f"{selected_condition_demog_clinic} - Cases by Gender", height=300, values_are_counts=True), use_container_width=True)
-                    else: st.caption("No data for gender distribution.")
-                else: st.caption("Gender data not available for selected condition.")
-        elif selected_condition_demog_clinic != "All Conditions": st.caption(f"No '{selected_condition_demog_clinic}' cases found for demographic breakdown.")
-        else: st.caption(f"No cases found for demographic breakdown with current filters.")
-    else: st.caption("Condition data unavailable for demographic breakdown.")
+                    
+                    if not gender_dist_demog_clinic.empty:
+                        st.plotly_chart(plot_donut_chart(gender_dist_demog_clinic, 'Gender', 'New Cases', f"{selected_condition_demog_clinic} - Cases by Gender", height=300, values_are_counts=True), use_container_width=True)
+                    else:
+                        st.caption("No data for gender distribution.")
+                else:
+                    st.caption("Gender data not available for selected condition.")
+        elif selected_condition_demog_clinic != "All Conditions":
+            st.caption(f"No '{selected_condition_demog_clinic}' cases found for demographic breakdown.")
+        else:
+            st.caption(f"No cases found for demographic breakdown with current filters.")
+    else:
+        st.caption("Condition data unavailable for demographic breakdown.")
 
     st.markdown("---")
     st.subheader("Referral Funnel Analysis (Simplified)")
-    if 'referral_status' in filtered_health_df_clinic.columns and filtered_health_df_clinic['referral_status'].notna().any() and \
+    if 'referral_status' in filtered_health_df_clinic.columns and \
+       filtered_health_df_clinic['referral_status'].notna().any() and \
        'encounter_id' in filtered_health_df_clinic.columns:
-        referral_df_funnel_epi = filtered_health_df_clinic[filtered_health_df_clinic['referral_status'].str.lower().isin(['pending', 'completed', 'initiated', 'service provided', 'attended', 'missed appointment', 'declined'])].copy()
+        
+        actionable_statuses = ['pending', 'completed', 'initiated', 'service provided', 'attended', 'missed appointment', 'declined']
+        referral_df_funnel_epi = filtered_health_df_clinic[
+            filtered_health_df_clinic['referral_status'].str.lower().isin(actionable_statuses)
+        ].copy()
+        
         if not referral_df_funnel_epi.empty:
             total_referrals_made_epi = referral_df_funnel_epi['encounter_id'].nunique()
             completed_referrals_epi = 0
             if 'referral_outcome' in referral_df_funnel_epi.columns:
-                 completed_referrals_epi = referral_df_funnel_epi[referral_df_funnel_epi['referral_outcome'].isin(['Completed', 'Service Provided', 'Attended'])]['encounter_id'].nunique()
-            pending_referrals_epi = referral_df_funnel_epi[referral_df_funnel_epi['referral_status'] == 'Pending']['encounter_id'].nunique()
+                 completed_statuses = ['Completed', 'Service Provided', 'Attended']
+                 completed_referrals_epi = referral_df_funnel_epi[
+                     referral_df_funnel_epi['referral_outcome'].isin(completed_statuses)
+                 ]['encounter_id'].nunique()
+            pending_referrals_epi = referral_df_funnel_epi[
+                referral_df_funnel_epi['referral_status'] == 'Pending'
+            ]['encounter_id'].nunique()
             
             funnel_data_epi = pd.DataFrame([
                 {'Stage': 'Referrals Initiated', 'Count': total_referrals_made_epi},
@@ -138,12 +180,15 @@ def render_clinic_epi_module(filtered_health_df_clinic, date_range_display_str):
             ])
             
             funnel_data_epi_plot = funnel_data_epi[funnel_data_epi['Count'] > 0]
-            if funnel_data_epi_plot.empty and total_referrals_made_epi > 0 :
+            if funnel_data_epi_plot.empty and total_referrals_made_epi > 0:
                  funnel_data_epi_plot = funnel_data_epi.head(1)
 
-            if not funnel_data_epi_plot.empty :
+            if not funnel_data_epi_plot.empty:
                  st.plotly_chart(plot_bar_chart(funnel_data_epi_plot, 'Stage', 'Count', "Referral Funnel Stages", height=350, y_axis_title="Number of Referrals", orientation='v', y_is_count=True, text_format='d'), use_container_width=True)
-            else: st.caption("No data to display for referral funnel with current filters.")
-        else: st.caption("No actionable referral records found for funnel analysis.")
-    else: st.caption("Referral status or encounter ID data not available for funnel analysis.")
+            else:
+                st.caption("No data to display for referral funnel with current filters.")
+        else:
+            st.caption("No actionable referral records found for funnel analysis.")
+    else:
+        st.caption("Referral status or encounter ID data not available for funnel analysis.")
     st.markdown("---")
